@@ -1,6 +1,0 @@
-- Initial open-source release of Smart Keyboard Pro
-- Lightweight Jetpack Compose keyboard engine
-- Offline prediction for English and Indonesian
-- Auto-Text abbreviation expansion
-- Custom themes and layout height adjustments
-- Offline JSON/ZIP backup and restore
