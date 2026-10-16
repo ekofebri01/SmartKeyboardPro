@@ -1,0 +1,6 @@
+{
+  "name": "Smart Keyboard Pro",
+  "description": "Smart Keyboard Pro with ultra-responsive typing, custom Auto-Text, predictive text, full emoji support, theme engine, and complete auto-backup & restore for Android.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
