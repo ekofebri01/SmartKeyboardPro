@@ -1,0 +1,39 @@
+Categories:
+  - System
+  - Writing
+License: GPL-3.0-or-later
+AuthorName: ekofebri01
+SourceCode: https://github.com/ekofebri01/SmartKeyboardPro
+IssueTracker: https://github.com/ekofebri01/SmartKeyboardPro/issues
+Changelog: https://github.com/ekofebri01/SmartKeyboardPro/releases
+
+AutoName: Smart Keyboard Pro
+Summary: Fast, lightweight, and modern open-source virtual keyboard
+Description: |-
+  Smart Keyboard Pro is a fast, lightweight, and modern open-source Android
+  virtual keyboard built with Kotlin and Jetpack Compose.
+
+  Key Features:
+  * Lightning-Fast & Lightweight: Minimal APK footprint with zero background battery drain.
+  * Smart Auto-Text & Shortcuts: Expand text shortcuts and abbreviations instantly.
+  * Local Predictive Text & Dictionary: Offline word prediction and learning supporting Indonesian and English dictionaries.
+  * Customizable Themes & Dimensions: Multiple theme options with adjustable key heights.
+  * Universal Backup & Restore: Export and import your settings, custom dictionary words, and auto-text shortcuts via JSON or ZIP files.
+  * Privacy First: 100% offline-capable with no telemetry, tracking, or network permissions required for core typing.
+  * Open Source: Free software released under the GNU General Public License v3 (GPL-3.0).
+
+RepoType: git
+Repo: https://github.com/ekofebri01/SmartKeyboardPro.git
+
+Builds:
+  - versionName: '1.0'
+    versionCode: 1
+    commit: v1.0
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: '1.0'
+CurrentVersionCode: 1

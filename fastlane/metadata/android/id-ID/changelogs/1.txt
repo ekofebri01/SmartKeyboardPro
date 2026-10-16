@@ -1,0 +1,6 @@
+- Rilis perdana open-source Smart Keyboard Pro
+- Mesin ketik modern Jetpack Compose
+- Prediksi kata luring untuk Bahasa Indonesia dan Inggris
+- Fitur auto-text dan ekspansi singkatan
+- Kustomisasi tema dan tinggi keyboard
+- Pencadangan dan pemulihan data JSON/ZIP

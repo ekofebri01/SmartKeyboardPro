@@ -1,0 +1,1 @@
+A fast, lightweight, and modern open-source virtual keyboard with auto-text and offline prediction.
