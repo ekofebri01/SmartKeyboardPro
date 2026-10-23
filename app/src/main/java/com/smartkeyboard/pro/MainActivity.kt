@@ -374,7 +374,7 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
             }
         }
 
-        // Section: Key Shapes & Feedback
+        // Section: Keyboard Layout & Symbols
         Card(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
             shape = RoundedCornerShape(16.dp),
@@ -385,14 +385,146 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "Key Geometry & Feedback",
+                    text = "Layout & Symbol Shortcuts",
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
                     color = Color.White
                 )
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Dedicated Number Row", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Display row of numbers (1–0) above QWERTY", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Switch(
+                        checked = config.showNumberRow,
+                        onCheckedChange = { viewModel.toggleNumberRow(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF0284C7)
+                        )
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF334155))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Show Secondary Symbols", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Display symbol hints (!, @, #, $, etc.) on letter keys", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Switch(
+                        checked = config.showKeySymbols,
+                        onCheckedChange = { viewModel.toggleKeySymbols(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF0284C7)
+                        )
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF334155))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Long-Press for Symbols", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Hold any letter key to immediately input its symbol", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Switch(
+                        checked = config.enableLongPressSymbols,
+                        onCheckedChange = { viewModel.toggleLongPressSymbols(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF0284C7)
+                        )
+                    )
+                }
+            }
+        }
+
+        // Section: Key Shapes & Dimensions
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Text(
-                    text = "Button Corner Radius: ${config.cornerRadiusDp} dp",
+                    text = "Keyboard Shape & Height",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    color = Color.White
+                )
+
+                Text("Keycap Shape Style", color = Color(0xFF94A3B8), fontSize = 13.sp)
+                val shapes = listOf(
+                    "rounded" to "Rounded",
+                    "pill" to "Capsule / Pill",
+                    "squircle" to "Squircle",
+                    "sharp" to "Sharp"
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    shapes.forEach { (key, label) ->
+                        val isSelected = config.keyShapeStyle == key
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.updateKeyShapeStyle(key) },
+                            label = { Text(label, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF38BDF8),
+                                selectedLabelColor = Color(0xFF0F172A),
+                                containerColor = Color(0xFF0F172A),
+                                labelColor = Color.White
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSelected,
+                                borderColor = if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                            )
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Key Height: ${config.keyHeightDp} dp",
+                    color = Color.White,
+                    fontSize = 13.sp
+                )
+                Slider(
+                    value = config.keyHeightDp.toFloat(),
+                    onValueChange = { viewModel.updateKeyHeight(it.toInt()) },
+                    valueRange = 36f..54f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFF38BDF8),
+                        activeTrackColor = Color(0xFF38BDF8)
+                    )
+                )
+
+                Text(
+                    text = "Corner Radius Fine-Tuning: ${config.cornerRadiusDp} dp",
                     color = Color.White,
                     fontSize = 13.sp
                 )
@@ -404,6 +536,25 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                         thumbColor = Color(0xFF38BDF8),
                         activeTrackColor = Color(0xFF38BDF8)
                     )
+                )
+            }
+        }
+
+        // Section: Sound & Haptic Feedback
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Sound & Vibration Feedback",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    color = Color.White
                 )
 
                 Row(

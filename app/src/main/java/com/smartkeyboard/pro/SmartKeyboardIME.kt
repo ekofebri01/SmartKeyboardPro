@@ -8,9 +8,10 @@ import android.os.Bundle
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.View
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -202,6 +203,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SmartKeyboardView(
     config: ThemeConfig,
@@ -215,6 +217,8 @@ fun SmartKeyboardView(
     var mode by remember { mutableStateOf(KeyboardMode.ALPHA) }
     var isShifted by remember { mutableStateOf(false) }
 
+    val numberRow = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+
     val row1Alpha = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
     val row2Alpha = listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
     val row3Alpha = listOf("z", "x", "c", "v", "b", "n", "m")
@@ -225,11 +229,37 @@ fun SmartKeyboardView(
 
     val emojis = listOf("😊", "😂", "❤️", "👍", "🔥", "🎉", "✨", "🙏", "😎", "🚀", "💡", "💯")
 
+    // Secondary symbols mappings
+    val row1Symbols = if (config.showNumberRow) {
+        listOf("!", "@", "#", "$", "%", "&", "*", "(", ")", "-")
+    } else {
+        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+    }
+
+    val row2Symbols = if (config.showNumberRow) {
+        listOf("+", "=", "_", "/", "\\", ":", ";", "\"", "'")
+    } else {
+        listOf("@", "#", "$", "%", "&", "-", "+", "(", ")")
+    }
+
+    val row3Symbols = if (config.showNumberRow) {
+        listOf("~", "`", "<", ">", "[", "]", "?")
+    } else {
+        listOf("*", "\"", "'", ":", ";", "!", "?")
+    }
+
     val effectiveKeyColor = config.keyColor.copy(alpha = config.keyOpacity.coerceIn(0.1f, 1.0f))
     val actionKeyColor = if (config.customImagePath != null) {
         config.backgroundColor.copy(alpha = (config.keyOpacity * 1.1f).coerceIn(0.2f, 1.0f))
     } else {
         config.backgroundColor.copy(alpha = 0.85f)
+    }
+
+    val effectiveRadius = when (config.keyShapeStyle) {
+        "pill" -> config.keyHeightDp / 2
+        "squircle" -> 14
+        "sharp" -> 2
+        else -> config.cornerRadiusDp
     }
 
     Box(
@@ -245,7 +275,6 @@ fun SmartKeyboardView(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize()
             )
-            // Subtle scrim overlay for text readability
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -257,49 +286,94 @@ fun SmartKeyboardView(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             when (mode) {
                 KeyboardMode.ALPHA -> {
-                    // Row 1
+                    // Optional Top Number Row
+                    if (config.showNumberRow) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            numberRow.forEach { num ->
+                                ThemedKeyButton(
+                                    text = num,
+                                    secondarySymbol = null,
+                                    showSecondarySymbol = false,
+                                    keyColor = effectiveKeyColor.copy(alpha = (config.keyOpacity * 0.85f).coerceIn(0.1f, 1f)),
+                                    textColor = config.textColor,
+                                    cornerRadiusDp = effectiveRadius,
+                                    keyHeightDp = (config.keyHeightDp - 6).coerceAtLeast(34),
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onKeyPress(num) },
+                                    onLongClick = { onKeyPress(num) }
+                                )
+                            }
+                        }
+                    }
+
+                    // Row 1 (Letters + Secondary Symbols)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        row1Alpha.forEach { key ->
+                        row1Alpha.forEachIndexed { index, key ->
                             val text = if (isShifted) key.uppercase() else key
+                            val symbol = row1Symbols.getOrNull(index)
                             ThemedKeyButton(
                                 text = text,
+                                secondarySymbol = symbol,
+                                showSecondarySymbol = config.showKeySymbols,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
-                                cornerRadiusDp = config.cornerRadiusDp,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
                                 onClick = {
                                     onKeyPress(text)
                                     if (isShifted) isShifted = false
+                                },
+                                onLongClick = {
+                                    if (config.enableLongPressSymbols && symbol != null) {
+                                        onKeyPress(symbol)
+                                    } else {
+                                        onKeyPress(text)
+                                    }
                                 }
                             )
                         }
                     }
 
-                    // Row 2
+                    // Row 2 (Letters + Secondary Symbols)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp),
+                            .padding(horizontal = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        row2Alpha.forEach { key ->
+                        row2Alpha.forEachIndexed { index, key ->
                             val text = if (isShifted) key.uppercase() else key
+                            val symbol = row2Symbols.getOrNull(index)
                             ThemedKeyButton(
                                 text = text,
+                                secondarySymbol = symbol,
+                                showSecondarySymbol = config.showKeySymbols,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
-                                cornerRadiusDp = config.cornerRadiusDp,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
                                 onClick = {
                                     onKeyPress(text)
                                     if (isShifted) isShifted = false
+                                },
+                                onLongClick = {
+                                    if (config.enableLongPressSymbols && symbol != null) {
+                                        onKeyPress(symbol)
+                                    } else {
+                                        onKeyPress(text)
+                                    }
                                 }
                             )
                         }
@@ -316,22 +390,34 @@ fun SmartKeyboardView(
                             accentColor = config.accentColor,
                             defaultBg = actionKeyColor,
                             defaultText = config.textColor,
-                            cornerRadiusDp = config.cornerRadiusDp,
+                            cornerRadiusDp = effectiveRadius,
+                            keyHeightDp = config.keyHeightDp,
                             modifier = Modifier.weight(1.5f),
                             onClick = { isShifted = !isShifted }
                         )
 
-                        row3Alpha.forEach { key ->
+                        row3Alpha.forEachIndexed { index, key ->
                             val text = if (isShifted) key.uppercase() else key
+                            val symbol = row3Symbols.getOrNull(index)
                             ThemedKeyButton(
                                 text = text,
+                                secondarySymbol = symbol,
+                                showSecondarySymbol = config.showKeySymbols,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
-                                cornerRadiusDp = config.cornerRadiusDp,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
                                 onClick = {
                                     onKeyPress(text)
                                     if (isShifted) isShifted = false
+                                },
+                                onLongClick = {
+                                    if (config.enableLongPressSymbols && symbol != null) {
+                                        onKeyPress(symbol)
+                                    } else {
+                                        onKeyPress(text)
+                                    }
                                 }
                             )
                         }
@@ -341,7 +427,8 @@ fun SmartKeyboardView(
                             accentColor = config.accentColor,
                             defaultBg = actionKeyColor,
                             defaultText = config.textColor,
-                            cornerRadiusDp = config.cornerRadiusDp,
+                            cornerRadiusDp = effectiveRadius,
+                            keyHeightDp = config.keyHeightDp,
                             modifier = Modifier.weight(1.5f),
                             onClick = onBackspace
                         )
@@ -357,11 +444,15 @@ fun SmartKeyboardView(
                         row1Num.forEach { key ->
                             ThemedKeyButton(
                                 text = key,
+                                secondarySymbol = null,
+                                showSecondarySymbol = false,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
-                                cornerRadiusDp = config.cornerRadiusDp,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
-                                onClick = { onKeyPress(key) }
+                                onClick = { onKeyPress(key) },
+                                onLongClick = { onKeyPress(key) }
                             )
                         }
                     }
@@ -376,11 +467,15 @@ fun SmartKeyboardView(
                         row2Num.forEach { key ->
                             ThemedKeyButton(
                                 text = key,
+                                secondarySymbol = null,
+                                showSecondarySymbol = false,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
-                                cornerRadiusDp = config.cornerRadiusDp,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
-                                onClick = { onKeyPress(key) }
+                                onClick = { onKeyPress(key) },
+                                onLongClick = { onKeyPress(key) }
                             )
                         }
                     }
@@ -393,11 +488,15 @@ fun SmartKeyboardView(
                         row3Num.forEach { key ->
                             ThemedKeyButton(
                                 text = key,
+                                secondarySymbol = null,
+                                showSecondarySymbol = false,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
-                                cornerRadiusDp = config.cornerRadiusDp,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
-                                onClick = { onKeyPress(key) }
+                                onClick = { onKeyPress(key) },
+                                onLongClick = { onKeyPress(key) }
                             )
                         }
                         ThemedActionKeyButton(
@@ -405,7 +504,8 @@ fun SmartKeyboardView(
                             accentColor = config.accentColor,
                             defaultBg = actionKeyColor,
                             defaultText = config.textColor,
-                            cornerRadiusDp = config.cornerRadiusDp,
+                            cornerRadiusDp = effectiveRadius,
+                            keyHeightDp = config.keyHeightDp,
                             modifier = Modifier.weight(1.5f),
                             onClick = onBackspace
                         )
@@ -420,11 +520,15 @@ fun SmartKeyboardView(
                         emojis.take(6).forEach { emoji ->
                             ThemedKeyButton(
                                 text = emoji,
+                                secondarySymbol = null,
+                                showSecondarySymbol = false,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
-                                cornerRadiusDp = config.cornerRadiusDp,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
-                                onClick = { onKeyPress(emoji) }
+                                onClick = { onKeyPress(emoji) },
+                                onLongClick = { onKeyPress(emoji) }
                             )
                         }
                     }
@@ -435,11 +539,15 @@ fun SmartKeyboardView(
                         emojis.drop(6).take(6).forEach { emoji ->
                             ThemedKeyButton(
                                 text = emoji,
+                                secondarySymbol = null,
+                                showSecondarySymbol = false,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
-                                cornerRadiusDp = config.cornerRadiusDp,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
-                                onClick = { onKeyPress(emoji) }
+                                onClick = { onKeyPress(emoji) },
+                                onLongClick = { onKeyPress(emoji) }
                             )
                         }
                     }
@@ -457,7 +565,8 @@ fun SmartKeyboardView(
                     accentColor = config.accentColor,
                     defaultBg = actionKeyColor,
                     defaultText = config.textColor,
-                    cornerRadiusDp = config.cornerRadiusDp,
+                    cornerRadiusDp = effectiveRadius,
+                    keyHeightDp = config.keyHeightDp,
                     modifier = Modifier.weight(1.5f),
                     onClick = {
                         mode = if (mode == KeyboardMode.ALPHA) KeyboardMode.NUMBERS else KeyboardMode.ALPHA
@@ -469,7 +578,8 @@ fun SmartKeyboardView(
                     accentColor = config.accentColor,
                     defaultBg = actionKeyColor,
                     defaultText = config.textColor,
-                    cornerRadiusDp = config.cornerRadiusDp,
+                    cornerRadiusDp = effectiveRadius,
+                    keyHeightDp = config.keyHeightDp,
                     modifier = Modifier.weight(1f),
                     onClick = {
                         mode = if (mode == KeyboardMode.EMOJI) KeyboardMode.ALPHA else KeyboardMode.EMOJI
@@ -480,10 +590,13 @@ fun SmartKeyboardView(
                 Box(
                     modifier = Modifier
                         .weight(4f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(config.cornerRadiusDp.dp))
+                        .height(config.keyHeightDp.dp)
+                        .clip(RoundedCornerShape(effectiveRadius.dp))
                         .background(effectiveKeyColor)
-                        .clickable { onSpace() },
+                        .combinedClickable(
+                            onClick = onSpace,
+                            onLongClick = onSpace
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -499,7 +612,8 @@ fun SmartKeyboardView(
                     defaultBg = config.accentColor,
                     defaultText = Color.White,
                     isHighlighted = true,
-                    cornerRadiusDp = config.cornerRadiusDp,
+                    cornerRadiusDp = effectiveRadius,
+                    keyHeightDp = config.keyHeightDp,
                     modifier = Modifier.weight(1.5f),
                     onClick = onEnter
                 )
@@ -508,32 +622,56 @@ fun SmartKeyboardView(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThemedKeyButton(
     text: String,
+    secondarySymbol: String?,
+    showSecondarySymbol: Boolean,
     keyColor: Color,
     textColor: Color,
     cornerRadiusDp: Int,
+    keyHeightDp: Int,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     Box(
         modifier = modifier
-            .height(44.dp)
+            .height(keyHeightDp.dp)
             .clip(RoundedCornerShape(cornerRadiusDp.dp))
             .background(keyColor)
-            .clickable { onClick() },
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         contentAlignment = Alignment.Center
     ) {
+        // Small secondary symbol hint in top-right corner
+        if (showSecondarySymbol && secondarySymbol != null) {
+            Text(
+                text = secondarySymbol,
+                color = textColor.copy(alpha = 0.55f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 2.dp, end = 3.dp)
+            )
+        }
+
+        // Main key character
         Text(
             text = text,
             color = textColor,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Medium
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.align(Alignment.Center)
         )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThemedActionKeyButton(
     text: String,
@@ -543,6 +681,7 @@ fun ThemedActionKeyButton(
     defaultBg: Color,
     defaultText: Color,
     cornerRadiusDp: Int,
+    keyHeightDp: Int = 44,
     onClick: () -> Unit
 ) {
     val bg = if (isHighlighted) accentColor else defaultBg
@@ -550,10 +689,13 @@ fun ThemedActionKeyButton(
 
     Box(
         modifier = modifier
-            .height(44.dp)
+            .height(keyHeightDp.dp)
             .clip(RoundedCornerShape(cornerRadiusDp.dp))
             .background(bg)
-            .clickable { onClick() },
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         Text(

@@ -31,7 +31,12 @@ data class ThemeConfig(
     val keyOpacity: Float = 0.9f,
     val customImagePath: String? = null,
     val soundEnabled: Boolean = true,
-    val vibrationEnabled: Boolean = true
+    val vibrationEnabled: Boolean = true,
+    val showNumberRow: Boolean = true,
+    val showKeySymbols: Boolean = true,
+    val enableLongPressSymbols: Boolean = true,
+    val keyHeightDp: Int = 44,
+    val keyShapeStyle: String = "rounded" // "rounded", "pill", "squircle", "sharp"
 )
 
 object ThemeManager {
@@ -46,6 +51,11 @@ object ThemeManager {
     private const val KEY_CUSTOM_IMAGE_PATH = "custom_image_path"
     private const val KEY_SOUND = "sound_enabled"
     private const val KEY_VIBRATION = "vibration_enabled"
+    private const val KEY_SHOW_NUMBER_ROW = "show_number_row"
+    private const val KEY_SHOW_KEY_SYMBOLS = "show_key_symbols"
+    private const val KEY_ENABLE_LONG_PRESS = "enable_long_press"
+    private const val KEY_KEY_HEIGHT = "key_height"
+    private const val KEY_KEY_SHAPE_STYLE = "key_shape_style"
 
     val predefinedThemes = listOf(
         KeyboardTheme(
@@ -148,7 +158,12 @@ object ThemeManager {
             keyOpacity = prefs.getFloat(KEY_KEY_OPACITY, 0.9f),
             customImagePath = validImagePath,
             soundEnabled = prefs.getBoolean(KEY_SOUND, true),
-            vibrationEnabled = prefs.getBoolean(KEY_VIBRATION, true)
+            vibrationEnabled = prefs.getBoolean(KEY_VIBRATION, true),
+            showNumberRow = prefs.getBoolean(KEY_SHOW_NUMBER_ROW, true),
+            showKeySymbols = prefs.getBoolean(KEY_SHOW_KEY_SYMBOLS, true),
+            enableLongPressSymbols = prefs.getBoolean(KEY_ENABLE_LONG_PRESS, true),
+            keyHeightDp = prefs.getInt(KEY_KEY_HEIGHT, 44),
+            keyShapeStyle = prefs.getString(KEY_KEY_SHAPE_STYLE, "rounded") ?: "rounded"
         )
     }
 
@@ -165,6 +180,11 @@ object ThemeManager {
             putString(KEY_CUSTOM_IMAGE_PATH, config.customImagePath)
             putBoolean(KEY_SOUND, config.soundEnabled)
             putBoolean(KEY_VIBRATION, config.vibrationEnabled)
+            putBoolean(KEY_SHOW_NUMBER_ROW, config.showNumberRow)
+            putBoolean(KEY_SHOW_KEY_SYMBOLS, config.showKeySymbols)
+            putBoolean(KEY_ENABLE_LONG_PRESS, config.enableLongPressSymbols)
+            putInt(KEY_KEY_HEIGHT, config.keyHeightDp)
+            putString(KEY_KEY_SHAPE_STYLE, config.keyShapeStyle)
             apply()
         }
     }
@@ -173,13 +193,11 @@ object ThemeManager {
         return try {
             val contentResolver = context.contentResolver
             contentResolver.openInputStream(uri)?.use { inputStream ->
-                // Decode bounds first to prevent OutOfMemoryError
                 val options = BitmapFactory.Options().apply {
                     inJustDecodeBounds = true
                 }
                 BitmapFactory.decodeStream(inputStream, null, options)
 
-                // Calculate inSampleSize to fit reasonable max dimension (e.g. 1920x1080)
                 var inSampleSize = 1
                 val reqWidth = 1280
                 val reqHeight = 720
@@ -191,7 +209,6 @@ object ThemeManager {
                     }
                 }
 
-                // Decode real bitmap with downsampling
                 contentResolver.openInputStream(uri)?.use { realStream ->
                     val decodeOptions = BitmapFactory.Options().apply {
                         this.inSampleSize = inSampleSize

@@ -121,6 +121,42 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         ThemeManager.saveConfig(context, newConfig)
     }
 
+    fun toggleNumberRow(enabled: Boolean) {
+        val newConfig = themeConfig.copy(showNumberRow = enabled)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun toggleKeySymbols(enabled: Boolean) {
+        val newConfig = themeConfig.copy(showKeySymbols = enabled)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun toggleLongPressSymbols(enabled: Boolean) {
+        val newConfig = themeConfig.copy(enableLongPressSymbols = enabled)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun updateKeyHeight(heightDp: Int) {
+        val newConfig = themeConfig.copy(keyHeightDp = heightDp)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun updateKeyShapeStyle(style: String) {
+        val radius = when (style) {
+            "pill" -> 22
+            "squircle" -> 14
+            "sharp" -> 2
+            else -> 8
+        }
+        val newConfig = themeConfig.copy(keyShapeStyle = style, cornerRadiusDp = radius)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
     fun addClipboardItem(text: String) {
         if (text.isNotBlank() && !clipboardItems.contains(text)) {
             clipboardItems.add(0, text)
@@ -169,7 +205,6 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
     fun installUpdate(apkFile: File): Boolean {
         val launched = UpdateChecker.installApk(context, apkFile)
         if (launched) {
-            // Once installation is handed off to PackageInstaller, mark state and cleanup
             viewModelScope.launch {
                 kotlinx.coroutines.delay(2000)
                 UpdateChecker.cleanupUpdateFiles(context)

@@ -31,6 +31,16 @@ class ExampleRobolectricTest {
     }
 
     @Test
+    fun verifyThemeConfigLayoutDefaults() {
+        val defaultConfig = ThemeConfig()
+        assertTrue(defaultConfig.showNumberRow)
+        assertTrue(defaultConfig.showKeySymbols)
+        assertTrue(defaultConfig.enableLongPressSymbols)
+        assertEquals(44, defaultConfig.keyHeightDp)
+        assertEquals("rounded", defaultConfig.keyShapeStyle)
+    }
+
+    @Test
     fun verifyUpdateCheckerVersionComparison() {
         assertTrue(UpdateChecker.isVersionNewer("1.1.0", "1.0.0"))
         assertTrue(UpdateChecker.isVersionNewer("2.0.0", "1.9.9"))
