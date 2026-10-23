@@ -1,0 +1,6 @@
+Release v1.2.0:
+- Custom photo background theme support with adjustable key opacity
+- 7 new predefined theme palettes (Midnight, Cyberpunk, Emerald, Sunset, etc.)
+- In-app automatic update downloader with animated progress
+- Direct FileProvider package installation and automatic cache cleanup
+- Fixed IME service lifecycle stability and prevents stops

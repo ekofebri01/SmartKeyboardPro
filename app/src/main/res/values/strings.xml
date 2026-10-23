@@ -1,7 +1,9 @@
 <resources>
     <string name="app_name">Smart Keyboard Pro</string>
-    <string name="ime_name">Smart Keyboard Pro</string>
-    <string name="settings_title">Smart Keyboard Pro Settings</string>
-    <string name="subtype_id">Bahasa Indonesia</string>
-    <string name="subtype_en">English (US)</string>
+    <string name="ime_settings">Keyboard Settings</string>
+    <string name="enable_keyboard">Enable Keyboard</string>
+    <string name="select_keyboard">Switch Active Keyboard</string>
+    <string name="test_typing">Test Typing Area</string>
+    <string name="theme_selection">Keyboard Theme</string>
+    <string name="sound_vibration">Haptic &amp; Sound</string>
 </resources>

@@ -1,0 +1,41 @@
+Categories:
+  - System
+  - Writing
+License: Apache-2.0
+AuthorName: Smart Keyboard Team
+WebSite: https://github.com/ekofebri01/SmartKeyboardPro
+SourceCode: https://github.com/ekofebri01/SmartKeyboardPro
+IssueTracker: https://github.com/ekofebri01/SmartKeyboardPro/issues
+
+AutoName: Smart Keyboard Pro
+
+Summary: Privacy-first, open-source customizable keyboard with custom themes and in-app updates
+
+Description: |-
+  Smart Keyboard Pro is a lightweight, customizable, and completely private keyboard application for Android.
+
+  Features:
+  * 100% Offline & Private: No keystroke tracking. Your typing never leaves your device.
+  * Custom Theme Engine: Predefined color palettes and custom photo background uploader with adjustable key opacity.
+  * Seamless In-App Updates: Check and stream updates directly from GitHub releases with automated package cleanup.
+  * QWERTY, Number, and Symbol layouts with fast switching.
+  * Built-in Emoji panel with popular reactions.
+  * Haptic vibration feedback and customizable keypress sounds.
+  * Clean Material Design 3 user interface with dark mode.
+  * Easy setup wizard directly from the app launcher.
+
+RepoType: git
+Repo: https://github.com/ekofebri01/SmartKeyboardPro.git
+
+Builds:
+  - versionName: 1.2.0
+    versionCode: 120
+    commit: v1.2.0
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.2.0
+CurrentVersionCode: 120

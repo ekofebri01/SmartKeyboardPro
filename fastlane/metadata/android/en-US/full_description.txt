@@ -1,10 +1,9 @@
-Smart Keyboard Pro is a fast, lightweight, and modern open-source Android virtual keyboard built with Kotlin and Jetpack Compose.
+Smart Keyboard Pro is a lightweight, customizable, and completely private keyboard application for Android.
 
 Key Features:
-- Lightning-Fast & Lightweight: Optimized codebase with a minimal APK footprint and zero background drain.
-- Smart Auto-Text & Shortcuts: Expand frequently used abbreviations and canned responses instantly.
-- Local Predictive Text & Dictionary: Offline word prediction and learning supporting Indonesian and English dictionaries.
-- Customizable Themes & Key Dimensions: Choose from classic themes or build your own custom color palette and key heights.
-- Universal Backup & Restore: Export and import your settings, custom dictionary words, and auto-text shortcuts via JSON or ZIP files.
-- Privacy First: 100% offline-capable with no telemetry, tracking, or network permissions required for core typing.
-- Open Source: Free software released under the GNU General Public License v3 (GPL-3.0).
+- 100% Offline & Private: No internet permission declared or used. Your typing never leaves your device.
+- Full layout support: QWERTY, numeric, and symbol keyboards.
+- Built-in Emoji picker for quick expressions.
+- Haptic vibration and sound feedback on keypresses.
+- Modern Material 3 UI with dark mode support.
+- Fully compatible with F-Droid and open-source standards.
