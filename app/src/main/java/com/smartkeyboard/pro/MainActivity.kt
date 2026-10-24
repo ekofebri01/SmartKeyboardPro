@@ -1196,8 +1196,12 @@ fun GitHubUpdateTab(viewModel: KeyboardViewModel) {
                     )
                 }
 
-                Text("What's New in v1.3.0:", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-                Text("- Added Cloud Sync for Personal Dictionary via Firebase Firestore & Auth.", fontSize = 12.sp, color = Color(0xFFCBD5E1))
+                Text("What's New in v1.3.2:", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text("- Auto-switches to numeric keypad on number input fields.", fontSize = 12.sp, color = Color(0xFFCBD5E1))
+                Text("- Fixed keypress haptic vibration and sound feedback.", fontSize = 12.sp, color = Color(0xFFCBD5E1))
+                Text("- Enhanced high-contrast secondary symbol hints on keys.", fontSize = 12.sp, color = Color(0xFFCBD5E1))
+                Text("- Hold '?123' key to quickly open app settings.", fontSize = 12.sp, color = Color(0xFFCBD5E1))
+                Text("- Cleaned up bottom-left controls and removed duplicate buttons.", fontSize = 12.sp, color = Color(0xFFCBD5E1))
 
 
                 Button(
