@@ -12,8 +12,8 @@ android {
         applicationId = "com.smartkeyboard.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 132
-        versionName = "1.3.2"
+        versionCode = 140
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -94,4 +94,5 @@ dependencies {
     implementation("androidx.credentials:credentials:1.3.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }

@@ -12,12 +12,19 @@ data class DictionaryEntry(
     val lastUsed: Long = System.currentTimeMillis()
 )
 
+/**
+ * Personal Dictionary manager with persistent deletion blacklist and cache invalidation.
+ * Prevents deleted words from reappearing in suggestion previews or being auto-relearned.
+ */
 object PersonalDictionary {
     private const val PREFS_NAME = "smart_keyboard_personal_dict"
     private const val KEY_WORDS_JSON = "learned_words_json"
+    private const val KEY_DELETED_WORDS_JSON = "deleted_words_json"
     private const val KEY_AUTO_LEARN = "auto_learn_enabled"
 
     private val wordMap = mutableMapOf<String, DictionaryEntry>()
+    private val deletedWordsSet = mutableSetOf<String>()
+    private var sortedWords: List<DictionaryEntry> = emptyList()
     private var isLoaded = false
 
     private val defaultStarterWords = listOf(
@@ -41,12 +48,29 @@ object PersonalDictionary {
         if (isLoaded) return
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-        // Preload default words
-        defaultStarterWords.forEach { w ->
-            val lower = w.lowercase(Locale.ROOT)
-            wordMap[lower] = DictionaryEntry(word = lower, frequency = 5)
+        // 1. Load deleted words blacklist
+        deletedWordsSet.clear()
+        val deletedJson = prefs.getString(KEY_DELETED_WORDS_JSON, null)
+        if (!deletedJson.isNullOrEmpty()) {
+            try {
+                val array = JSONArray(deletedJson)
+                for (i in 0 until array.length()) {
+                    deletedWordsSet.add(array.getString(i).lowercase(Locale.ROOT))
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
 
+        // 2. Preload default starter words (skipping deleted ones)
+        defaultStarterWords.forEach { w ->
+            val lower = w.lowercase(Locale.ROOT)
+            if (!deletedWordsSet.contains(lower)) {
+                wordMap[lower] = DictionaryEntry(word = lower, frequency = 5)
+            }
+        }
+
+        // 3. Load learned words JSON (skipping deleted ones)
         val jsonStr = prefs.getString(KEY_WORDS_JSON, null)
         if (!jsonStr.isNullOrEmpty()) {
             try {
@@ -54,14 +78,18 @@ object PersonalDictionary {
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
                     val w = obj.getString("word").lowercase(Locale.ROOT)
-                    val freq = obj.optInt("frequency", 1)
-                    val time = obj.optLong("lastUsed", System.currentTimeMillis())
-                    wordMap[w] = DictionaryEntry(word = w, frequency = freq, lastUsed = time)
+                    if (!deletedWordsSet.contains(w)) {
+                        val freq = obj.optInt("frequency", 1)
+                        val time = obj.optLong("lastUsed", System.currentTimeMillis())
+                        wordMap[w] = DictionaryEntry(word = w, frequency = freq, lastUsed = time)
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
+
+        sortedWords = emptyList()
         isLoaded = true
     }
 
@@ -71,11 +99,15 @@ object PersonalDictionary {
         val clean = cleanRaw.filter { it.isLetter() }
         if (clean.length < 2) return
 
+        load(context)
+
+        // CRITICAL FIX: If word was deleted by user, auto-learning MUST NOT re-add it!
+        if (deletedWordsSet.contains(clean)) return
+
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val autoLearn = prefs.getBoolean(KEY_AUTO_LEARN, true)
         if (!autoLearn) return
 
-        load(context)
         val existing = wordMap[clean]
         val newFreq = (existing?.frequency ?: 0) + 1
         wordMap[clean] = DictionaryEntry(
@@ -84,15 +116,36 @@ object PersonalDictionary {
             lastUsed = System.currentTimeMillis()
         )
 
-        save(context)
         sortedWords = emptyList() // Reset cache
+        save(context)
     }
 
-    private var sortedWords: List<DictionaryEntry> = emptyList()
+    @Synchronized
+    fun addWordManually(context: Context, rawWord: String) {
+        val cleanRaw = rawWord.trim().lowercase(Locale.ROOT)
+        val clean = cleanRaw.filter { it.isLetter() }
+        if (clean.length < 2) return
+
+        load(context)
+
+        // Un-blacklist word if user manually adds it
+        deletedWordsSet.remove(clean)
+
+        val existing = wordMap[clean]
+        val newFreq = (existing?.frequency ?: 0) + 2
+        wordMap[clean] = DictionaryEntry(
+            word = clean,
+            frequency = newFreq,
+            lastUsed = System.currentTimeMillis()
+        )
+
+        sortedWords = emptyList() // Reset cache
+        save(context)
+    }
 
     @Synchronized
     private fun ensureSorted() {
-        if (sortedWords.size != wordMap.size) {
+        if (sortedWords.isEmpty() || sortedWords.size != wordMap.size) {
             sortedWords = wordMap.values.sortedWith(
                 compareByDescending<DictionaryEntry> { it.frequency }
                     .thenByDescending { it.lastUsed }
@@ -101,49 +154,59 @@ object PersonalDictionary {
     }
 
     @Synchronized
-    fun getSuggestions(context: Context, prefix: String, limit: Int = 3): List<String> {
+    fun getSuggestions(context: Context, prefix: String, limit: Int = 4): List<String> {
         load(context)
         ensureSorted()
         val clean = prefix.trim().lowercase(Locale.ROOT)
         if (clean.isEmpty()) return emptyList()
 
         val matches = sortedWords
-            .filter { it.word.startsWith(clean) }
+            .filter { !deletedWordsSet.contains(it.word) && it.word.startsWith(clean) }
             .map { it.word }
             .toMutableList()
 
-        // If prefix is not yet in suggestions, offer it as an option
-        if (!matches.contains(clean)) {
+        // If prefix itself is not blacklisted and not yet in suggestions, offer it
+        if (!deletedWordsSet.contains(clean) && !matches.contains(clean)) {
             matches.add(0, clean)
         }
 
-        return matches.distinct().take(limit)
+        return matches.distinct().filter { !deletedWordsSet.contains(it) }.take(limit)
     }
 
     @Synchronized
     fun getAllLearnedWords(context: Context): List<DictionaryEntry> {
         load(context)
         return wordMap.values
+            .filter { !deletedWordsSet.contains(it.word) }
             .sortedWith(compareByDescending<DictionaryEntry> { it.frequency }.thenBy { it.word })
             .toList()
     }
 
     @Synchronized
     fun removeWord(context: Context, word: String) {
+        load(context)
         val clean = word.trim().lowercase(Locale.ROOT)
+
+        // 1. Remove from active map
         wordMap.remove(clean)
-        sortedWords = emptyList() // Reset cache
+
+        // 2. Add to persistent deleted blacklist
+        deletedWordsSet.add(clean)
+
+        // 3. Clear cache
+        sortedWords = emptyList()
+
+        // 4. Save changes
         save(context)
     }
 
     @Synchronized
     fun clearUserDictionary(context: Context) {
+        load(context)
+        // Blacklist all current words
+        deletedWordsSet.addAll(wordMap.keys)
         wordMap.clear()
-        defaultStarterWords.forEach { w ->
-            val lower = w.lowercase(Locale.ROOT)
-            wordMap[lower] = DictionaryEntry(word = lower, frequency = 5)
-        }
-        sortedWords = emptyList() // Reset cache
+        sortedWords = emptyList()
         save(context)
     }
 
@@ -151,16 +214,26 @@ object PersonalDictionary {
     private fun save(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val array = JSONArray()
+
+            // Save active words
+            val wordsArray = JSONArray()
             wordMap.values.forEach { entry ->
                 val obj = JSONObject().apply {
                     put("word", entry.word)
                     put("frequency", entry.frequency)
                     put("lastUsed", entry.lastUsed)
                 }
-                array.put(obj)
+                wordsArray.put(obj)
             }
-            prefs.edit().putString(KEY_WORDS_JSON, array.toString()).apply()
+
+            // Save deleted words blacklist
+            val deletedArray = JSONArray()
+            deletedWordsSet.forEach { deletedArray.put(it) }
+
+            prefs.edit()
+                .putString(KEY_WORDS_JSON, wordsArray.toString())
+                .putString(KEY_DELETED_WORDS_JSON, deletedArray.toString())
+                .apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }

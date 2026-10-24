@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Bundle
+import android.widget.Toast
 import android.text.InputType
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
@@ -15,7 +16,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +37,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -143,7 +153,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
         }
     }
 
-    private var initialMode = KeyboardMode.ALPHA
+    private var initialMode by mutableStateOf(KeyboardMode.ALPHA)
 
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
@@ -156,6 +166,58 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                 initialMode = KeyboardMode.NUMBERS
             } else {
                 initialMode = KeyboardMode.ALPHA
+            }
+        }
+    }
+
+    private fun handleDelete() {
+        playFeedback()
+        val ic = currentInputConnection ?: return
+
+        // 1. If text is selected (highlighted text, sentence selection, or Select All), commit empty string to delete it
+        val selectedText = try {
+            ic.getSelectedText(0)
+        } catch (e: Exception) {
+            null
+        }
+
+        if (!selectedText.isNullOrEmpty()) {
+            ic.commitText("", 1)
+            return
+        }
+
+        // 2. Secondary check for selection using ExtractedText if editor didn't return text in getSelectedText
+        val extracted = try {
+            ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+        } catch (e: Exception) {
+            null
+        }
+
+        if (extracted != null && extracted.selectionStart != extracted.selectionEnd) {
+            ic.commitText("", 1)
+            return
+        }
+
+        // 3. Send standard KEYCODE_DEL key event. In Android framework TextView/EditText, KEYCODE_DEL natively
+        // handles deleting selections and standard single character deletion.
+        val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
+        val up = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)
+        val sent = try {
+            ic.sendKeyEvent(down) && ic.sendKeyEvent(up)
+        } catch (e: Exception) {
+            false
+        }
+
+        // 4. Fallback if the target editor didn't process the key event directly
+        if (!sent) {
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                    ic.deleteSurroundingTextInCodePoints(1, 0)
+                } else {
+                    ic.deleteSurroundingText(1, 0)
+                }
+            } catch (e: Exception) {
+                ic.deleteSurroundingText(1, 0)
             }
         }
     }
@@ -179,8 +241,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                         currentInputConnection?.commitText(char, 1)
                     },
                     onBackspace = {
-                        playFeedback(this)
-                        currentInputConnection?.deleteSurroundingText(1, 0)
+                        handleDelete()
                     },
                     onSpace = {
                         playFeedback(this)
@@ -217,7 +278,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
         return view
     }
 
-    private fun playFeedback(view: View) {
+    private fun playFeedback(view: View? = composeView) {
         if (currentConfig.vibrationEnabled) {
             try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -229,7 +290,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                     vibrator?.vibrate(25L)
                 }
             } catch (e: Exception) {
-                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                view?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
         }
         if (currentConfig.soundEnabled) {
@@ -297,6 +358,59 @@ fun SmartKeyboardView(
         }
     }
 
+    val autoTextEntries = remember(context) {
+        val list = mutableListOf<AutoTextEntry>()
+        try {
+            val prefs = context.getSharedPreferences("smart_keyboard_autotext_prefs", Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("autotext_items_json", null)
+            if (!jsonStr.isNullOrBlank()) {
+                val jsonArray = org.json.JSONArray(jsonStr)
+                for (i in 0 until jsonArray.length()) {
+                    val element = jsonArray.get(i)
+                    if (element is org.json.JSONObject) {
+                        list.add(AutoTextEntry.fromJsonObject(element))
+                    } else if (element is String) {
+                        list.add(AutoTextEntry.createFromLegacyString(element))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        if (list.isEmpty()) {
+            list.addAll(
+                listOf(
+                    AutoTextEntry(shortcut = "thx", fullText = "Terima kasih atas informasinya! 🙏"),
+                    AutoTextEntry(shortcut = "alamat", fullText = "Jl. Sudirman No. 123, Jakarta Selatan"),
+                    AutoTextEntry(shortcut = "email", fullText = "rafael.aryanto@gmail.com"),
+                    AutoTextEntry(shortcut = "halo", fullText = "Halo! Terima kasih sudah menghubungi."),
+                    AutoTextEntry(shortcut = "repo", fullText = "https://github.com/ekofebri01/SmartKeyboardPro")
+                )
+            )
+        }
+        list
+    }
+
+    val matchingAutoTexts = remember(currentComposingWord, autoTextEntries) {
+        if (currentComposingWord.isNotEmpty()) {
+            val query = currentComposingWord.trim().lowercase()
+            autoTextEntries.filter { entry ->
+                entry.shortcut.lowercase().startsWith(query) ||
+                entry.shortcut.lowercase().contains(query) ||
+                entry.fullText.lowercase().contains(query)
+            }.sortedBy { entry ->
+                when {
+                    entry.shortcut.lowercase() == query -> 0
+                    entry.shortcut.lowercase().startsWith(query) -> 1
+                    entry.shortcut.lowercase().contains(query) -> 2
+                    else -> 3
+                }
+            }
+        } else {
+            emptyList()
+        }
+    }
+
     val numberRow = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
 
     val row1Alpha = listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
@@ -348,7 +462,7 @@ fun SmartKeyboardView(
             .background(config.backgroundColor)
     ) {
         // Custom photo background if active
-        if (bgBitmap != null && config.themeId == "custom") {
+        if (bgBitmap != null && config.customImagePath != null) {
             Image(
                 bitmap = bgBitmap,
                 contentDescription = "Custom Keyboard Background",
@@ -368,7 +482,7 @@ fun SmartKeyboardView(
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Suggestion Bar (Kamus Pribadi & Prediksi Kata)
+            // Suggestion Bar (Kamus Pribadi & Auto Text Expander)
             if (config.showSuggestionBar && mode == KeyboardMode.ALPHA) {
                 Surface(
                     modifier = Modifier
@@ -377,7 +491,73 @@ fun SmartKeyboardView(
                     color = actionKeyColor,
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    if (suggestions.isNotEmpty()) {
+                    if (matchingAutoTexts.isNotEmpty()) {
+                        // Priority: Keyword matched Auto Text!
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(matchingAutoTexts, key = { it.id }) { entry ->
+                                val charsToDelete = currentComposingWord.length
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(config.accentColor.copy(alpha = 0.25f))
+                                        .clickable {
+                                            currentComposingWord = ""
+                                            onSuggestionSelected(entry.fullText, charsToDelete)
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "⚡ ${entry.shortcut}",
+                                        color = config.accentColor,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "→",
+                                        color = config.textColor.copy(alpha = 0.6f),
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = entry.fullText,
+                                        color = config.textColor,
+                                        fontSize = 12.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            items(suggestions) { suggestion ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(config.keyColor.copy(alpha = 0.5f))
+                                        .clickable {
+                                            val charsToDelete = currentComposingWord.length
+                                            PersonalDictionary.learnWord(context, suggestion)
+                                            currentComposingWord = ""
+                                            onSuggestionSelected(suggestion, charsToDelete)
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = suggestion,
+                                        color = config.textColor,
+                                        fontSize = 12.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    } else if (suggestions.isNotEmpty()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -387,6 +567,7 @@ fun SmartKeyboardView(
                         ) {
                             suggestions.forEachIndexed { idx, suggestion ->
                                 val isPrimary = idx == 0 || (suggestions.size > 1 && idx == 1)
+                                @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
@@ -394,12 +575,19 @@ fun SmartKeyboardView(
                                         .padding(vertical = 3.dp, horizontal = 2.dp)
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(if (isPrimary) config.accentColor.copy(alpha = 0.22f) else Color.Transparent)
-                                        .clickable {
-                                            val charsToDelete = currentComposingWord.length
-                                            PersonalDictionary.learnWord(context, suggestion)
-                                            currentComposingWord = ""
-                                            onSuggestionSelected(suggestion, charsToDelete)
-                                        },
+                                        .combinedClickable(
+                                            onClick = {
+                                                val charsToDelete = currentComposingWord.length
+                                                PersonalDictionary.learnWord(context, suggestion)
+                                                currentComposingWord = ""
+                                                onSuggestionSelected(suggestion, charsToDelete)
+                                            },
+                                            onLongClick = {
+                                                PersonalDictionary.removeWord(context, suggestion)
+                                                Toast.makeText(context, "Kata '$suggestion' telah dihapus dari kamus", Toast.LENGTH_SHORT).show()
+                                                currentComposingWord = ""
+                                            }
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
@@ -420,6 +608,57 @@ fun SmartKeyboardView(
                                 }
                             }
                         }
+                    } else if (autoTextEntries.isNotEmpty()) {
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(config.accentColor.copy(alpha = 0.22f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "⚡ Auto Text",
+                                        color = config.accentColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            items(autoTextEntries, key = { it.id }) { entry ->
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(config.keyColor.copy(alpha = 0.5f))
+                                        .clickable {
+                                            onSuggestionSelected(entry.fullText, 0)
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "[${entry.shortcut}]",
+                                        color = config.accentColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = entry.fullText,
+                                        color = config.textColor,
+                                        fontSize = 12.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
                     } else {
                         Row(
                             modifier = Modifier
@@ -429,7 +668,7 @@ fun SmartKeyboardView(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "💡 Ketik kata untuk prediksi & auto-save",
+                                text = "💡 Ketik kata/pintasan untuk prediksi",
                                 color = config.textColor.copy(alpha = 0.5f),
                                 fontSize = 12.sp
                             )
@@ -602,7 +841,7 @@ fun SmartKeyboardView(
                             )
                         }
 
-                        ThemedActionKeyButton(
+                        RepeatingDeleteKeyButton(
                             text = "⌫",
                             accentColor = config.accentColor,
                             defaultBg = actionKeyColor,
@@ -610,7 +849,7 @@ fun SmartKeyboardView(
                             cornerRadiusDp = effectiveRadius,
                             keyHeightDp = config.keyHeightDp,
                             modifier = Modifier.weight(1.5f),
-                            onClick = {
+                            onDelete = {
                                 if (currentComposingWord.isNotEmpty()) {
                                     currentComposingWord = currentComposingWord.dropLast(1)
                                 }
@@ -684,7 +923,7 @@ fun SmartKeyboardView(
                                 onLongClick = { onKeyPress(key) }
                             )
                         }
-                        ThemedActionKeyButton(
+                        RepeatingDeleteKeyButton(
                             text = "⌫",
                             accentColor = config.accentColor,
                             defaultBg = actionKeyColor,
@@ -692,7 +931,7 @@ fun SmartKeyboardView(
                             cornerRadiusDp = effectiveRadius,
                             keyHeightDp = config.keyHeightDp,
                             modifier = Modifier.weight(1.5f),
-                            onClick = onBackspace
+                            onDelete = onBackspace
                         )
                     }
                 }
@@ -975,3 +1214,63 @@ fun ThemedActionKeyButton(
         )
     }
 }
+
+@Composable
+fun RepeatingDeleteKeyButton(
+    text: String = "⌫",
+    modifier: Modifier = Modifier,
+    accentColor: Color,
+    defaultBg: Color,
+    defaultText: Color,
+    cornerRadiusDp: Int,
+    keyHeightDp: Int = 44,
+    onDelete: () -> Unit
+) {
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    var isPressed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isPressed) {
+        if (isPressed) {
+            // First immediate deletion on touch down
+            currentOnDelete()
+            // Initial delay before continuous repeat starts (400ms)
+            delay(400L)
+            var deleteCount = 0
+            // Continuous deletion while held
+            while (isPressed) {
+                currentOnDelete()
+                deleteCount++
+                // Accelerate after deleting multiple characters
+                val interval = if (deleteCount > 12) 35L else 55L
+                delay(interval)
+            }
+        }
+    }
+
+    val bg = if (isPressed) accentColor.copy(alpha = 0.35f) else defaultBg
+    val fg = if (isPressed) accentColor else defaultText
+
+    Box(
+        modifier = modifier
+            .height(keyHeightDp.dp)
+            .clip(RoundedCornerShape(cornerRadiusDp.dp))
+            .background(bg)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    waitForUpOrCancellation()
+                    isPressed = false
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = fg,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+

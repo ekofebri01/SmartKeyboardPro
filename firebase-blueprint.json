@@ -14,6 +14,26 @@
         "content": "string",
         "createdAt": "timestamp"
       }
+    },
+    "UserBackup": {
+      "collection": "users/{userId}/backups",
+      "fields": {
+        "backupId": "string",
+        "createdAt": "timestamp",
+        "deviceName": "string",
+        "appVersion": "string",
+        "themeConfigJson": "string",
+        "learnedWordsJson": "string",
+        "clipboardSnippetsJson": "string",
+        "itemCount": "number"
+      }
+    },
+    "UserSettings": {
+      "collection": "users/{userId}/settings",
+      "fields": {
+        "updatedAt": "timestamp",
+        "themeConfigJson": "string"
+      }
     }
   }
 }

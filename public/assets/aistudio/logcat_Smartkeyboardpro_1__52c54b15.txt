@@ -1,0 +1,43 @@
+🟢 [AUTH EVENT] Initiating Google Sign-In Flow 
+
+🟢 [AUTH EVENT] Requesting credentials via GetGoogleIdOption - Client ID: 890466982278-nqsuuunkne9qt2rq9o0fn1vviucgu989.apps.googleusercontent.com
+
+
+==================== [AUTH DIAGNOSTIC FAILURE REPORT] ====================
+Context            : GetGoogleIdOption Primary Flow Failure
+Error Code         : NO_CREDENTIAL_FOUND
+Summary            : Tidak ada akun Google yang terdaftar di perangkat / Play Services.
+Exception Class    : androidx.credentials.exceptions.NoCredentialException
+Raw Exception Msg  : During begin sign in, failure response from one tap: 10: [28444] Developer console is not set up correctly.
+Recommended Action : Tambahkan akun Google di Pengaturan Android > Akun (Settings > Accounts) lalu coba lagi.
+User Friendly Msg  : Tidak ada akun Google terdaftar di HP/Emulator ini.
+--------------------------------------------------------------------------
+Stack Trace Snippet:
+  at androidx.credentials.playservices.controllers.CredentialProviderBaseController$Companion.getCredentialExceptionTypeToException$credentials_play_services_auth_release(CredentialProviderBaseController.kt:110)
+  at androidx.credentials.playservices.controllers.BeginSignIn.CredentialProviderBeginSignInController$resultReceiver$1$onReceiveResult$1.invoke(CredentialProviderBeginSignInController.kt:84)
+  at androidx.credentials.playservices.controllers.BeginSignIn.CredentialProviderBeginSignInController$resultReceiver$1$onReceiveResult$1.invoke(CredentialProviderBeginSignInController.kt:84)
+  at androidx.credentials.playservices.controllers.CredentialProviderController.maybeReportErrorFromResultReceiver(CredentialProviderController.kt:151)
+  at androidx.credentials.playservices.controllers.BeginSignIn.CredentialProviderBeginSignInController.access$maybeReportErrorFromResultReceiver(CredentialProviderBeginSignInController.kt:55)
+  at androidx.credentials.playservices.controllers.BeginSignIn.CredentialProviderBeginSignInController$resultReceiver$1.onReceiveResult(CredentialProviderBeginSignInController.kt:82)
+===========================================================================
+
+🟢 [AUTH EVENT] Primary flow failed (NO_CREDENTIAL_FOUND), attempting GetSignInWithGoogleOption fallback... 
+
+
+==================== [AUTH DIAGNOSTIC FAILURE REPORT] ====================
+Context            : Fallback User Cancelled
+Error Code         : SIGN_IN_CANCELLED
+Summary            : Proses login dibatalkan oleh pengguna atau dialog Google Sign-In ditutup sebelum memilih akun.
+Exception Class    : androidx.credentials.exceptions.GetCredentialCancellationException
+Raw Exception Msg  : activity is cancelled by the user.
+Recommended Action : Pastikan HP/Emulator sudah menambahkan Akun Google (Settings > Accounts) dan pilih salah satu akun saat dialog muncul.
+User Friendly Msg  : Proses masuk Google dibatalkan.
+--------------------------------------------------------------------------
+Stack Trace Snippet:
+  at androidx.credentials.playservices.controllers.CredentialProviderController$Companion.maybeReportErrorResultCodeGet(CredentialProviderController.kt:108)
+  at androidx.credentials.playservices.controllers.CredentialProviderController.maybeReportErrorResultCodeGet(Unknown Source:2)
+  at androidx.credentials.playservices.controllers.GetSignInIntent.CredentialProviderGetSignInIntentController.handleResponse$credentials_play_services_auth_release(CredentialProviderGetSignInIntentController.kt:215)
+  at androidx.credentials.playservices.controllers.GetSignInIntent.CredentialProviderGetSignInIntentController$resultReceiver$1.onReceiveResult(CredentialProviderGetSignInIntentController.kt:89)
+  at android.os.ResultReceiver$MyRunnable.run(ResultReceiver.java:50)
+  at android.os.Handler.handleCallback(Handler.java:938)
+===========================================================================
