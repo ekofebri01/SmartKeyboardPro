@@ -1,0 +1,19 @@
+{
+  "entities": {
+    "LearnedWord": {
+      "collection": "users/{userId}/learned_words",
+      "fields": {
+        "word": "string",
+        "frequency": "number",
+        "lastUsed": "timestamp"
+      }
+    },
+    "Snippet": {
+      "collection": "users/{userId}/snippets",
+      "fields": {
+        "content": "string",
+        "createdAt": "timestamp"
+      }
+    }
+  }
+}

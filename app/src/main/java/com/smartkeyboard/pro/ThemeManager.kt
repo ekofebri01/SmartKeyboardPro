@@ -36,7 +36,9 @@ data class ThemeConfig(
     val showKeySymbols: Boolean = true,
     val enableLongPressSymbols: Boolean = true,
     val keyHeightDp: Int = 44,
-    val keyShapeStyle: String = "rounded" // "rounded", "pill", "squircle", "sharp"
+    val keyShapeStyle: String = "rounded", // "rounded", "pill", "squircle", "sharp"
+    val showSuggestionBar: Boolean = true,
+    val autoSpaceAfterWord: Boolean = true
 )
 
 object ThemeManager {
@@ -56,6 +58,8 @@ object ThemeManager {
     private const val KEY_ENABLE_LONG_PRESS = "enable_long_press"
     private const val KEY_KEY_HEIGHT = "key_height"
     private const val KEY_KEY_SHAPE_STYLE = "key_shape_style"
+    private const val KEY_SHOW_SUGGESTION_BAR = "show_suggestion_bar"
+    private const val KEY_AUTO_SPACE = "auto_space"
 
     val predefinedThemes = listOf(
         KeyboardTheme(
@@ -162,6 +166,8 @@ object ThemeManager {
             showNumberRow = prefs.getBoolean(KEY_SHOW_NUMBER_ROW, true),
             showKeySymbols = prefs.getBoolean(KEY_SHOW_KEY_SYMBOLS, true),
             enableLongPressSymbols = prefs.getBoolean(KEY_ENABLE_LONG_PRESS, true),
+            showSuggestionBar = prefs.getBoolean(KEY_SHOW_SUGGESTION_BAR, true),
+            autoSpaceAfterWord = prefs.getBoolean(KEY_AUTO_SPACE, true),
             keyHeightDp = prefs.getInt(KEY_KEY_HEIGHT, 44),
             keyShapeStyle = prefs.getString(KEY_KEY_SHAPE_STYLE, "rounded") ?: "rounded"
         )
@@ -183,6 +189,8 @@ object ThemeManager {
             putBoolean(KEY_SHOW_NUMBER_ROW, config.showNumberRow)
             putBoolean(KEY_SHOW_KEY_SYMBOLS, config.showKeySymbols)
             putBoolean(KEY_ENABLE_LONG_PRESS, config.enableLongPressSymbols)
+            putBoolean(KEY_SHOW_SUGGESTION_BAR, config.showSuggestionBar)
+            putBoolean(KEY_AUTO_SPACE, config.autoSpaceAfterWord)
             putInt(KEY_KEY_HEIGHT, config.keyHeightDp)
             putString(KEY_KEY_SHAPE_STYLE, config.keyShapeStyle)
             apply()

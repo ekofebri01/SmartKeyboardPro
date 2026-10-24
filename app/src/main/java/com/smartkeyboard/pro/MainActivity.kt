@@ -55,13 +55,19 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val viewModel: KeyboardViewModel by viewModels()
+    private val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             MaterialTheme {
-                MainAppScreen(viewModel)
+                val user = auth.currentUser
+                if (user == null) {
+                    SignInScreen(onAuthSuccess = { setContent { MaterialTheme { MainAppScreen(viewModel) } } })
+                } else {
+                    MainAppScreen(viewModel)
+                }
             }
         }
     }
@@ -88,7 +94,7 @@ fun MainAppScreen(viewModel: KeyboardViewModel) {
     }
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabTitles = listOf("Studio", "Activation", "Vault", "Updates", "Privacy")
+    val tabTitles = listOf("Studio", "Activation", "Kamus & Vault", "Updates", "Privacy")
 
     Scaffold(
         containerColor = Color(0xFF0B132B),
@@ -454,6 +460,50 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                         )
                     )
                 }
+
+                HorizontalDivider(color = Color(0xFF334155))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Smart Suggestion Bar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Show word predictions from personal dictionary above keyboard", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Switch(
+                        checked = config.showSuggestionBar,
+                        onCheckedChange = { viewModel.toggleSuggestionBar(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF0284C7)
+                        )
+                    )
+                }
+
+                HorizontalDivider(color = Color(0xFF334155))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-Space After Word", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Automatically insert a space when tapping a suggested word", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Switch(
+                        checked = config.autoSpaceAfterWord,
+                        onCheckedChange = { viewModel.toggleAutoSpace(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF0284C7)
+                        )
+                    )
+                }
             }
         }
 
@@ -693,7 +743,45 @@ fun ActivationTab() {
 @Composable
 fun ClipboardVaultTab(viewModel: KeyboardViewModel) {
     val context = LocalContext.current
+    var subTab by remember { mutableIntStateOf(0) } // 0: Kamus Pribadi, 1: Clipboard Vault
     var newSnippetText by remember { mutableStateOf("") }
+    var newDictWord by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf("") }
+    var showResetDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshLearnedWords()
+    }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Reset Kamus Pribadi?", color = Color.White) },
+            text = {
+                Text(
+                    "Semua kata yang telah dipelajari secara otomatis akan dihapus dan dikembalikan ke kosakata awal.",
+                    color = Color(0xFFCBD5E1)
+                )
+            },
+            containerColor = Color(0xFF1E293B),
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearLearnedWords()
+                        showResetDialog = false
+                        Toast.makeText(context, "Kamus pribadi direset", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Reset", color = Color(0xFFF87171), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) {
+                    Text("Batal", color = Color(0xFF94A3B8))
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -701,87 +789,309 @@ fun ClipboardVaultTab(viewModel: KeyboardViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(
-            text = "Clipboard Vault",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
-        )
-        Text(
-            text = "Store fast snippets, canned responses, and templates for one-tap copy & pasting.",
-            fontSize = 12.sp,
-            color = Color(0xFF94A3B8)
-        )
-
+        // Sub-Tab Switcher
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1C2541))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (subTab == 0) Color(0xFF0284C7) else Color.Transparent)
+                    .clickable { subTab = 0 }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "📖 Kamus Pribadi (${viewModel.learnedWords.size})",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = if (subTab == 0) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (subTab == 1) Color(0xFF0284C7) else Color.Transparent)
+                    .clickable { subTab = 1 }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "📋 Snippet Vault (${viewModel.clipboardItems.size})",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = if (subTab == 1) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+        }
+
+        if (subTab == 0) {
+            // === KAMUS PRIBADI SUB-TAB ===
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Auto-Learning & Prediksi",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        TextButton(
+                            onClick = { showResetDialog = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Reset Kamus", color = Color(0xFFF87171), fontSize = 12.sp)
+                        }
+                    }
+                    Text(
+                        text = "Smart Keyboard otomatis menyimpan kata baru saat Anda menekan Spasi/Enter. Kata yang sering digunakan akan muncul di bar saran di atas keyboard.",
+                        fontSize = 12.sp,
+                        color = Color(0xFF94A3B8),
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+
+            // Input to manually add word
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = newDictWord,
+                    onValueChange = { newDictWord = it },
+                    placeholder = { Text("Tambah kata baru...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF38BDF8),
+                        unfocusedBorderColor = Color(0xFF334155)
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        val word = newDictWord.trim()
+                        if (word.isNotBlank()) {
+                            viewModel.addLearnedWord(word)
+                            newDictWord = ""
+                            Toast.makeText(context, "\"$word\" disimpan ke kamus!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text("Tambah", fontSize = 13.sp)
+                }
+            }
+
+            // Search filter
             OutlinedTextField(
-                value = newSnippetText,
-                onValueChange = { newSnippetText = it },
-                placeholder = { Text("New quick snippet...", color = Color(0xFF64748B)) },
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Cari kata di kamus...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                singleLine = true,
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     focusedBorderColor = Color(0xFF38BDF8),
                     unfocusedBorderColor = Color(0xFF334155)
                 ),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             )
-            Button(
-                onClick = {
-                    if (newSnippetText.isNotBlank()) {
-                        viewModel.addClipboardItem(newSnippetText.trim())
-                        newSnippetText = ""
-                        Toast.makeText(context, "Snippet added!", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text("Add")
-            }
-        }
 
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(viewModel.clipboardItems) { snippet ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+            val filteredWords = remember(searchQuery, viewModel.learnedWords) {
+                if (searchQuery.isBlank()) {
+                    viewModel.learnedWords
+                } else {
+                    viewModel.learnedWords.filter { it.word.contains(searchQuery.trim(), ignoreCase = true) }
+                }
+            }
+
+            if (filteredWords.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = snippet,
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(
-                                onClick = {
-                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                    cm?.setPrimaryClip(ClipData.newPlainText("snippet", snippet))
-                                    Toast.makeText(context, "Copied to clipboard!", Toast.LENGTH_SHORT).show()
+                    Text(
+                        text = if (searchQuery.isBlank()) "Belum ada kata tersimpan" else "Tidak ditemukan kata yang cocok",
+                        color = Color(0xFF64748B),
+                        fontSize = 14.sp
+                    )
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    items(filteredWords, key = { it.word }) { entry ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = entry.word,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 15.sp
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF0F172A))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "${entry.frequency}x",
+                                            color = Color(0xFF38BDF8),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = "Copy", tint = Color(0xFF38BDF8))
+
+                                IconButton(
+                                    onClick = {
+                                        viewModel.deleteLearnedWord(entry.word)
+                                        Toast.makeText(context, "\"${entry.word}\" dihapus", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Hapus kata",
+                                        tint = Color(0xFFF87171),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
-                            IconButton(
-                                onClick = { viewModel.removeClipboardItem(snippet) }
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFF87171))
+                        }
+                    }
+                }
+            }
+        } else {
+            // === CLIPBOARD SNIPPETS SUB-TAB ===
+            Text(
+                text = "Simpan template teks, alamat, atau pesan cepat untuk disalin dengan 1 ketukan.",
+                fontSize = 12.sp,
+                color = Color(0xFF94A3B8)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = newSnippetText,
+                    onValueChange = { newSnippetText = it },
+                    placeholder = { Text("Template pesan baru...", color = Color(0xFF64748B), fontSize = 13.sp) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF38BDF8),
+                        unfocusedBorderColor = Color(0xFF334155)
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        if (newSnippetText.isNotBlank()) {
+                            viewModel.addClipboardItem(newSnippetText.trim())
+                            newSnippetText = ""
+                            Toast.makeText(context, "Snippet ditambahkan!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Tambah", fontSize = 13.sp)
+                }
+            }
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                items(viewModel.clipboardItems) { snippet ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = snippet,
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                IconButton(
+                                    onClick = {
+                                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        cm?.setPrimaryClip(ClipData.newPlainText("snippet", snippet))
+                                        Toast.makeText(context, "Tersalin ke clipboard!", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = "Copy", tint = Color(0xFF38BDF8))
+                                }
+                                IconButton(
+                                    onClick = { viewModel.removeClipboardItem(snippet) }
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFF87171))
+                                }
                             }
                         }
                     }
@@ -885,6 +1195,10 @@ fun GitHubUpdateTab(viewModel: KeyboardViewModel) {
                         modifier = Modifier.weight(1f)
                     )
                 }
+
+                Text("What's New in v1.3.0:", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text("- Added Cloud Sync for Personal Dictionary via Firebase Firestore & Auth.", fontSize = 12.sp, color = Color(0xFFCBD5E1))
+
 
                 Button(
                     onClick = { viewModel.checkForUpdates(currentVersion) },

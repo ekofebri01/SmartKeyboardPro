@@ -1,26 +1,31 @@
 package com.smartkeyboard.pro
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Bundle
+import android.text.InputType
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.View
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -98,6 +104,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
             .registerOnSharedPreferenceChangeListener(prefsListener)
 
         loadCurrentTheme()
+        PersonalDictionary.load(this)
     }
 
     private fun loadCurrentTheme() {
@@ -136,6 +143,23 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
         }
     }
 
+    private var initialMode = KeyboardMode.ALPHA
+
+    override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        if (info != null) {
+            val classType = info.inputType and InputType.TYPE_MASK_CLASS
+            val variation = info.inputType and InputType.TYPE_MASK_VARIATION
+            if (classType == InputType.TYPE_CLASS_NUMBER ||
+                classType == InputType.TYPE_CLASS_PHONE ||
+                variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD) {
+                initialMode = KeyboardMode.NUMBERS
+            } else {
+                initialMode = KeyboardMode.ALPHA
+            }
+        }
+    }
+
     override fun onCreateInputView(): View {
         setupDecorViewOwners()
 
@@ -149,6 +173,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                 SmartKeyboardView(
                     config = currentConfig,
                     bgBitmap = customBgBitmap,
+                    initialMode = initialMode,
                     onKeyPress = { char ->
                         playFeedback(this)
                         currentInputConnection?.commitText(char, 1)
@@ -165,6 +190,25 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                         playFeedback(this)
                         currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
                         currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                    },
+                    onSuggestionSelected = { word, charsToDelete ->
+                        playFeedback(this)
+                        if (charsToDelete > 0) {
+                            currentInputConnection?.deleteSurroundingText(charsToDelete, 0)
+                        }
+                        val textToCommit = if (currentConfig.autoSpaceAfterWord) "$word " else word
+                        currentInputConnection?.commitText(textToCommit, 1)
+                    },
+                    onOpenSettings = {
+                        playFeedback(this)
+                        try {
+                            val intent = Intent(context, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                 )
             }
@@ -175,11 +219,31 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
 
     private fun playFeedback(view: View) {
         if (currentConfig.vibrationEnabled) {
-            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                    vibrator?.vibrate(android.os.VibrationEffect.createOneShot(25L, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                    vibrator?.vibrate(25L)
+                }
+            } catch (e: Exception) {
+                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
         }
         if (currentConfig.soundEnabled) {
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK)
+            try {
+                val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 0.8f)
+            } catch (e: Exception) {
+                try {
+                    val toneGen = android.media.ToneGenerator(android.media.AudioManager.STREAM_SYSTEM, 90)
+                    toneGen.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 35)
+                } catch (e2: Exception) {
+                    e2.printStackTrace()
+                }
+            }
         }
     }
 
@@ -208,14 +272,30 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
 fun SmartKeyboardView(
     config: ThemeConfig,
     bgBitmap: ImageBitmap?,
+    initialMode: KeyboardMode = KeyboardMode.ALPHA,
     onKeyPress: (String) -> Unit,
     onBackspace: () -> Unit,
     onSpace: () -> Unit,
     onEnter: () -> Unit,
+    onSuggestionSelected: (String, Int) -> Unit = { _, _ -> },
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var mode by remember { mutableStateOf(KeyboardMode.ALPHA) }
+    val context = LocalContext.current
+    var mode by remember { mutableStateOf(initialMode) }
+    androidx.compose.runtime.LaunchedEffect(initialMode) {
+        mode = initialMode
+    }
     var isShifted by remember { mutableStateOf(false) }
+    var currentComposingWord by remember { mutableStateOf("") }
+
+    val suggestions = remember(currentComposingWord, config.showSuggestionBar) {
+        if (config.showSuggestionBar && currentComposingWord.isNotEmpty()) {
+            PersonalDictionary.getSuggestions(context, currentComposingWord, limit = 4)
+        } else {
+            emptyList()
+        }
+    }
 
     val numberRow = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
 
@@ -285,9 +365,85 @@ fun SmartKeyboardView(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            // Suggestion Bar (Kamus Pribadi & Prediksi Kata)
+            if (config.showSuggestionBar && mode == KeyboardMode.ALPHA) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(36.dp),
+                    color = actionKeyColor,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (suggestions.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            suggestions.forEachIndexed { idx, suggestion ->
+                                val isPrimary = idx == 0 || (suggestions.size > 1 && idx == 1)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .padding(vertical = 3.dp, horizontal = 2.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isPrimary) config.accentColor.copy(alpha = 0.22f) else Color.Transparent)
+                                        .clickable {
+                                            val charsToDelete = currentComposingWord.length
+                                            PersonalDictionary.learnWord(context, suggestion)
+                                            currentComposingWord = ""
+                                            onSuggestionSelected(suggestion, charsToDelete)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = suggestion,
+                                        color = if (isPrimary) config.accentColor else config.textColor,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isPrimary) FontWeight.Bold else FontWeight.Normal,
+                                        maxLines = 1
+                                    )
+                                }
+                                if (idx < suggestions.size - 1) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(1.dp)
+                                            .height(14.dp)
+                                            .background(config.textColor.copy(alpha = 0.2f))
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "💡 Ketik kata untuk prediksi & auto-save",
+                                color = config.textColor.copy(alpha = 0.5f),
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "Auto-Spasi: ON",
+                                color = config.accentColor.copy(alpha = 0.8f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+
             when (mode) {
                 KeyboardMode.ALPHA -> {
                     // Optional Top Number Row
@@ -306,7 +462,13 @@ fun SmartKeyboardView(
                                     cornerRadiusDp = effectiveRadius,
                                     keyHeightDp = (config.keyHeightDp - 6).coerceAtLeast(34),
                                     modifier = Modifier.weight(1f),
-                                    onClick = { onKeyPress(num) },
+                                    onClick = {
+                                        if (currentComposingWord.isNotBlank()) {
+                                            PersonalDictionary.learnWord(context, currentComposingWord)
+                                            currentComposingWord = ""
+                                        }
+                                        onKeyPress(num)
+                                    },
                                     onLongClick = { onKeyPress(num) }
                                 )
                             }
@@ -331,13 +493,19 @@ fun SmartKeyboardView(
                                 keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
                                 onClick = {
+                                    currentComposingWord += text
                                     onKeyPress(text)
                                     if (isShifted) isShifted = false
                                 },
                                 onLongClick = {
                                     if (config.enableLongPressSymbols && symbol != null) {
+                                        if (currentComposingWord.isNotBlank()) {
+                                            PersonalDictionary.learnWord(context, currentComposingWord)
+                                            currentComposingWord = ""
+                                        }
                                         onKeyPress(symbol)
                                     } else {
+                                        currentComposingWord += text
                                         onKeyPress(text)
                                     }
                                 }
@@ -365,13 +533,19 @@ fun SmartKeyboardView(
                                 keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
                                 onClick = {
+                                    currentComposingWord += text
                                     onKeyPress(text)
                                     if (isShifted) isShifted = false
                                 },
                                 onLongClick = {
                                     if (config.enableLongPressSymbols && symbol != null) {
+                                        if (currentComposingWord.isNotBlank()) {
+                                            PersonalDictionary.learnWord(context, currentComposingWord)
+                                            currentComposingWord = ""
+                                        }
                                         onKeyPress(symbol)
                                     } else {
+                                        currentComposingWord += text
                                         onKeyPress(text)
                                     }
                                 }
@@ -409,13 +583,19 @@ fun SmartKeyboardView(
                                 keyHeightDp = config.keyHeightDp,
                                 modifier = Modifier.weight(1f),
                                 onClick = {
+                                    currentComposingWord += text
                                     onKeyPress(text)
                                     if (isShifted) isShifted = false
                                 },
                                 onLongClick = {
                                     if (config.enableLongPressSymbols && symbol != null) {
+                                        if (currentComposingWord.isNotBlank()) {
+                                            PersonalDictionary.learnWord(context, currentComposingWord)
+                                            currentComposingWord = ""
+                                        }
                                         onKeyPress(symbol)
                                     } else {
+                                        currentComposingWord += text
                                         onKeyPress(text)
                                     }
                                 }
@@ -430,7 +610,12 @@ fun SmartKeyboardView(
                             cornerRadiusDp = effectiveRadius,
                             keyHeightDp = config.keyHeightDp,
                             modifier = Modifier.weight(1.5f),
-                            onClick = onBackspace
+                            onClick = {
+                                if (currentComposingWord.isNotEmpty()) {
+                                    currentComposingWord = currentComposingWord.dropLast(1)
+                                }
+                                onBackspace()
+                            }
                         )
                     }
                 }
@@ -554,7 +739,7 @@ fun SmartKeyboardView(
                 }
             }
 
-            // Bottom control row: Mode toggle, Space, Emoji, Enter
+            // Bottom control row: Mode toggle, Emoji, Comma, Space, Period, Enter
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -567,10 +752,15 @@ fun SmartKeyboardView(
                     defaultText = config.textColor,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1.5f),
+                    modifier = Modifier.weight(1.2f),
                     onClick = {
+                        if (currentComposingWord.isNotBlank()) {
+                            PersonalDictionary.learnWord(context, currentComposingWord)
+                            currentComposingWord = ""
+                        }
                         mode = if (mode == KeyboardMode.ALPHA) KeyboardMode.NUMBERS else KeyboardMode.ALPHA
-                    }
+                    },
+                    onLongClick = onOpenSettings
                 )
 
                 ThemedActionKeyButton(
@@ -580,31 +770,102 @@ fun SmartKeyboardView(
                     defaultText = config.textColor,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
+                    modifier = Modifier.weight(0.9f),
+                    onClick = {
+                        if (currentComposingWord.isNotBlank()) {
+                            PersonalDictionary.learnWord(context, currentComposingWord)
+                            currentComposingWord = ""
+                        }
+                        mode = if (mode == KeyboardMode.EMOJI) KeyboardMode.ALPHA else KeyboardMode.EMOJI
+                    }
+                )
+
+                // Comma key
+                ThemedKeyButton(
+                    text = ",",
+                    secondarySymbol = null,
+                    showSecondarySymbol = false,
+                    keyColor = effectiveKeyColor,
+                    textColor = config.textColor,
+                    symbolColor = config.accentColor,
+                    cornerRadiusDp = effectiveRadius,
+                    keyHeightDp = config.keyHeightDp,
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        mode = if (mode == KeyboardMode.EMOJI) KeyboardMode.ALPHA else KeyboardMode.EMOJI
+                        if (currentComposingWord.isNotBlank()) {
+                            PersonalDictionary.learnWord(context, currentComposingWord)
+                            currentComposingWord = ""
+                        }
+                        onKeyPress(",")
+                    },
+                    onLongClick = {
+                        if (currentComposingWord.isNotBlank()) {
+                            PersonalDictionary.learnWord(context, currentComposingWord)
+                            currentComposingWord = ""
+                        }
+                        onKeyPress(",")
                     }
                 )
 
                 // Space bar
                 Box(
                     modifier = Modifier
-                        .weight(4f)
+                        .weight(2.8f)
                         .height(config.keyHeightDp.dp)
                         .clip(RoundedCornerShape(effectiveRadius.dp))
                         .background(effectiveKeyColor)
                         .combinedClickable(
-                            onClick = onSpace,
-                            onLongClick = onSpace
+                            onClick = {
+                                if (currentComposingWord.isNotBlank()) {
+                                    PersonalDictionary.learnWord(context, currentComposingWord)
+                                    currentComposingWord = ""
+                                }
+                                onSpace()
+                            },
+                            onLongClick = {
+                                if (currentComposingWord.isNotBlank()) {
+                                    PersonalDictionary.learnWord(context, currentComposingWord)
+                                    currentComposingWord = ""
+                                }
+                                onSpace()
+                            }
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "Space",
-                        color = config.textColor.copy(alpha = 0.6f),
-                        fontSize = 14.sp
+                        color = config.textColor.copy(alpha = 0.7f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
+
+                // Period key
+                ThemedKeyButton(
+                    text = ".",
+                    secondarySymbol = null,
+                    showSecondarySymbol = false,
+                    keyColor = effectiveKeyColor,
+                    textColor = config.textColor,
+                    symbolColor = config.accentColor,
+                    cornerRadiusDp = effectiveRadius,
+                    keyHeightDp = config.keyHeightDp,
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        if (currentComposingWord.isNotBlank()) {
+                            PersonalDictionary.learnWord(context, currentComposingWord)
+                            currentComposingWord = ""
+                        }
+                        onKeyPress(".")
+                    },
+                    onLongClick = {
+                        if (currentComposingWord.isNotBlank()) {
+                            PersonalDictionary.learnWord(context, currentComposingWord)
+                            currentComposingWord = ""
+                        }
+                        onKeyPress(".")
+                    }
+                )
 
                 ThemedActionKeyButton(
                     text = "↵",
@@ -614,8 +875,14 @@ fun SmartKeyboardView(
                     isHighlighted = true,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1.5f),
-                    onClick = onEnter
+                    modifier = Modifier.weight(1.2f),
+                    onClick = {
+                        if (currentComposingWord.isNotBlank()) {
+                            PersonalDictionary.learnWord(context, currentComposingWord)
+                            currentComposingWord = ""
+                        }
+                        onEnter()
+                    }
                 )
             }
         }
@@ -630,6 +897,7 @@ fun ThemedKeyButton(
     showSecondarySymbol: Boolean,
     keyColor: Color,
     textColor: Color,
+    symbolColor: Color = textColor,
     cornerRadiusDp: Int,
     keyHeightDp: Int,
     modifier: Modifier = Modifier,
@@ -647,16 +915,16 @@ fun ThemedKeyButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Small secondary symbol hint in top-right corner
+        // Small secondary symbol hint in top-right corner with high contrast color
         if (showSecondarySymbol && secondarySymbol != null) {
             Text(
                 text = secondarySymbol,
-                color = textColor.copy(alpha = 0.55f),
-                fontSize = 10.sp,
+                color = symbolColor,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 2.dp, end = 3.dp)
+                    .padding(top = 2.dp, end = 4.dp)
             )
         }
 
@@ -682,7 +950,8 @@ fun ThemedActionKeyButton(
     defaultText: Color,
     cornerRadiusDp: Int,
     keyHeightDp: Int = 44,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = onClick
 ) {
     val bg = if (isHighlighted) accentColor else defaultBg
     val fg = if (isHighlighted) Color.White else defaultText
@@ -694,7 +963,7 @@ fun ThemedActionKeyButton(
             .background(bg)
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = onClick
+                onLongClick = onLongClick
             ),
         contentAlignment = Alignment.Center
     ) {

@@ -49,9 +49,48 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
 
     private var downloadJob: Job? = null
 
+    // Personal Dictionary State
+    var learnedWords by mutableStateOf<List<DictionaryEntry>>(emptyList())
+        private set
+
+    private val repo = PersonalDictionaryRepository(context, com.google.firebase.auth.FirebaseAuth.getInstance(), com.google.firebase.firestore.FirebaseFirestore.getInstance(context.getString(R.string.firestore_database_id)))
+
     init {
         // Clean up any stale update files on launch
         UpdateChecker.cleanupUpdateFiles(context)
+        PersonalDictionary.load(context)
+        refreshLearnedWords()
+        
+        viewModelScope.launch {
+            val cloudWords = repo.fetchLearnedWords()
+            // In a real app, we would merge cloud and local here.
+        }
+    }
+
+    fun refreshLearnedWords() {
+        learnedWords = PersonalDictionary.getAllLearnedWords(context)
+    }
+
+    fun addLearnedWord(word: String) {
+        PersonalDictionary.learnWord(context, word)
+        refreshLearnedWords()
+        viewModelScope.launch {
+            val entry = PersonalDictionary.getAllLearnedWords(context).find { it.word == word.trim().lowercase(java.util.Locale.ROOT) }
+            if (entry != null) repo.syncLearnedWord(entry)
+        }
+    }
+
+    fun deleteLearnedWord(word: String) {
+        PersonalDictionary.removeWord(context, word)
+        refreshLearnedWords()
+        viewModelScope.launch {
+            repo.removeLearnedWord(word.trim().lowercase(java.util.Locale.ROOT))
+        }
+    }
+
+    fun clearLearnedWords() {
+        PersonalDictionary.clearUserDictionary(context)
+        refreshLearnedWords()
     }
 
     fun selectPredefinedTheme(theme: KeyboardTheme) {
@@ -135,6 +174,18 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
 
     fun toggleLongPressSymbols(enabled: Boolean) {
         val newConfig = themeConfig.copy(enableLongPressSymbols = enabled)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun toggleSuggestionBar(enabled: Boolean) {
+        val newConfig = themeConfig.copy(showSuggestionBar = enabled)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun toggleAutoSpace(enabled: Boolean) {
+        val newConfig = themeConfig.copy(autoSpaceAfterWord = enabled)
         themeConfig = newConfig
         ThemeManager.saveConfig(context, newConfig)
     }
