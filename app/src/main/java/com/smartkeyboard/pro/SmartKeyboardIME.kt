@@ -174,9 +174,44 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
     }
 
     private var initialMode by mutableStateOf(KeyboardMode.ALPHA)
+    private var liveAutoTextEntries by mutableStateOf<List<AutoTextEntry>>(emptyList())
+
+    private fun reloadAutoTextEntries() {
+        val list = mutableListOf<AutoTextEntry>()
+        try {
+            val prefs = getSharedPreferences("smart_keyboard_autotext_prefs", Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("autotext_items_json", null)
+            if (!jsonStr.isNullOrBlank()) {
+                val jsonArray = org.json.JSONArray(jsonStr)
+                for (i in 0 until jsonArray.length()) {
+                    val element = jsonArray.get(i)
+                    if (element is org.json.JSONObject) {
+                        list.add(AutoTextEntry.fromJsonObject(element))
+                    } else if (element is String) {
+                        list.add(AutoTextEntry.createFromLegacyString(element))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        if (list.isEmpty()) {
+            list.addAll(
+                listOf(
+                    AutoTextEntry(shortcut = "thx", fullText = "Terima kasih atas informasinya! 🙏"),
+                    AutoTextEntry(shortcut = "alamat", fullText = "Jl. Sudirman No. 123, Jakarta Selatan"),
+                    AutoTextEntry(shortcut = "email", fullText = "rafael.aryanto@gmail.com"),
+                    AutoTextEntry(shortcut = "halo", fullText = "Halo! Terima kasih sudah menghubungi."),
+                    AutoTextEntry(shortcut = "repo", fullText = "https://github.com/ekofebri01/SmartKeyboardPro")
+                )
+            )
+        }
+        liveAutoTextEntries = list
+    }
 
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        reloadAutoTextEntries()
         if (info != null) {
             val classType = info.inputType and InputType.TYPE_MASK_CLASS
             val variation = info.inputType and InputType.TYPE_MASK_VARIATION
@@ -244,6 +279,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
 
     override fun onCreateInputView(): View {
         setupDecorViewOwners()
+        reloadAutoTextEntries()
 
         val view = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnLifecycleDestroyed(this@SmartKeyboardIME))
@@ -256,6 +292,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                     config = currentConfig,
                     bgBitmap = customBgBitmap,
                     initialMode = initialMode,
+                    customAutoTextEntries = liveAutoTextEntries,
                     onKeyPress = { char ->
                         playFeedback(this)
                         currentInputConnection?.commitText(char, 1)
@@ -265,7 +302,28 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                     },
                     onSpace = {
                         playFeedback(this)
-                        currentInputConnection?.commitText(" ", 1)
+                        val ic = currentInputConnection
+                        var autoTextExpanded = false
+                        if (ic != null) {
+                            try {
+                                val beforeCursor = ic.getTextBeforeCursor(40, 0)?.toString() ?: ""
+                                val match = Regex("""([a-zA-Z0-9_\-]+)$""").find(beforeCursor)
+                                if (match != null) {
+                                    val token = match.value
+                                    val matchedEntry = liveAutoTextEntries.firstOrNull { it.shortcut.equals(token, ignoreCase = true) }
+                                    if (matchedEntry != null) {
+                                        ic.deleteSurroundingText(token.length, 0)
+                                        ic.commitText(matchedEntry.fullText + " ", 1)
+                                        autoTextExpanded = true
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                        if (!autoTextExpanded) {
+                            currentInputConnection?.commitText(" ", 1)
+                        }
                     },
                     onEnter = {
                         playFeedback(this)
@@ -277,7 +335,13 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                         if (charsToDelete > 0) {
                             currentInputConnection?.deleteSurroundingText(charsToDelete, 0)
                         }
-                        val textToCommit = if (currentConfig.autoSpaceAfterWord) "$word " else word
+                        val textToCommit = if (word.endsWith(" ")) {
+                            word
+                        } else if (currentConfig.autoSpaceAfterWord) {
+                            "$word "
+                        } else {
+                            word
+                        }
                         currentInputConnection?.commitText(textToCommit, 1)
                     },
                     onOpenSettings = {
@@ -354,6 +418,7 @@ fun SmartKeyboardView(
     config: ThemeConfig,
     bgBitmap: ImageBitmap?,
     initialMode: KeyboardMode = KeyboardMode.ALPHA,
+    customAutoTextEntries: List<AutoTextEntry>? = null,
     onKeyPress: (String) -> Unit,
     onBackspace: () -> Unit,
     onSpace: () -> Unit,
@@ -378,7 +443,7 @@ fun SmartKeyboardView(
         }
     }
 
-    val autoTextEntries = remember(context) {
+    val fallbackAutoTextEntries = remember(context) {
         val list = mutableListOf<AutoTextEntry>()
         try {
             val prefs = context.getSharedPreferences("smart_keyboard_autotext_prefs", Context.MODE_PRIVATE)
@@ -410,6 +475,8 @@ fun SmartKeyboardView(
         }
         list
     }
+
+    val autoTextEntries = customAutoTextEntries ?: fallbackAutoTextEntries
 
     val matchingAutoTexts = remember(currentComposingWord, autoTextEntries) {
         if (currentComposingWord.isNotEmpty()) {
@@ -1136,18 +1203,40 @@ fun SmartKeyboardView(
                         .background(effectiveKeyColor)
                         .combinedClickable(
                             onClick = {
-                                if (currentComposingWord.isNotBlank()) {
-                                    PersonalDictionary.learnWord(context, currentComposingWord)
+                                val trimmedWord = currentComposingWord.trim()
+                                val matchedAutoText = if (trimmedWord.isNotEmpty()) {
+                                    autoTextEntries.firstOrNull { it.shortcut.equals(trimmedWord, ignoreCase = true) }
+                                } else null
+
+                                if (matchedAutoText != null) {
+                                    val charsToDelete = currentComposingWord.length
                                     currentComposingWord = ""
+                                    onSuggestionSelected(matchedAutoText.fullText + " ", charsToDelete)
+                                } else {
+                                    if (currentComposingWord.isNotBlank()) {
+                                        PersonalDictionary.learnWord(context, currentComposingWord)
+                                        currentComposingWord = ""
+                                    }
+                                    onSpace()
                                 }
-                                onSpace()
                             },
                             onLongClick = {
-                                if (currentComposingWord.isNotBlank()) {
-                                    PersonalDictionary.learnWord(context, currentComposingWord)
+                                val trimmedWord = currentComposingWord.trim()
+                                val matchedAutoText = if (trimmedWord.isNotEmpty()) {
+                                    autoTextEntries.firstOrNull { it.shortcut.equals(trimmedWord, ignoreCase = true) }
+                                } else null
+
+                                if (matchedAutoText != null) {
+                                    val charsToDelete = currentComposingWord.length
                                     currentComposingWord = ""
+                                    onSuggestionSelected(matchedAutoText.fullText + " ", charsToDelete)
+                                } else {
+                                    if (currentComposingWord.isNotBlank()) {
+                                        PersonalDictionary.learnWord(context, currentComposingWord)
+                                        currentComposingWord = ""
+                                    }
+                                    onSpace()
                                 }
-                                onSpace()
                             }
                         ),
                     contentAlignment = Alignment.Center

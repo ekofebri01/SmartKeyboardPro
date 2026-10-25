@@ -15,6 +15,16 @@
         "createdAt": "timestamp"
       }
     },
+    "AutoTextShortcut": {
+      "collection": "users/{userId}/auto_text_shortcuts",
+      "fields": {
+        "id": "string",
+        "shortcut": "string",
+        "fullText": "string",
+        "userId": "string",
+        "updatedAt": "timestamp"
+      }
+    },
     "UserBackup": {
       "collection": "users/{userId}/backups",
       "fields": {

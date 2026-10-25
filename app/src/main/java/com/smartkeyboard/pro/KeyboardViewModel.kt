@@ -49,6 +49,12 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         private set
 
     private val repo = PersonalDictionaryRepository(context, com.google.firebase.auth.FirebaseAuth.getInstance(), com.google.firebase.firestore.FirebaseFirestore.getInstance(context.getString(R.string.firestore_database_id)))
+    private val autoTextRepo = AutoTextRepository(context)
+
+    var isSyncingAutoText by mutableStateOf(false)
+        private set
+    var autoTextSyncMessage by mutableStateOf<String?>(null)
+        private set
 
     init {
         // Clean up any stale update files on launch
@@ -303,6 +309,9 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
                 autoTextEntries.removeAt(autoTextEntries.size - 1)
             }
             saveAutoTextItems()
+            viewModelScope.launch {
+                autoTextRepo.saveAutoTextToCloud(newEntry)
+            }
         }
     }
 
@@ -316,17 +325,73 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
             } else {
                 AutoTextEntry.createFromLegacyString(cleanFullText).shortcut
             }
-            autoTextEntries[index] = autoTextEntries[index].copy(
+            val updated = autoTextEntries[index].copy(
                 shortcut = finalShortcut,
-                fullText = cleanFullText
+                fullText = cleanFullText,
+                updatedAt = System.currentTimeMillis()
             )
+            autoTextEntries[index] = updated
             saveAutoTextItems()
+            viewModelScope.launch {
+                autoTextRepo.saveAutoTextToCloud(updated)
+            }
         }
     }
 
     fun removeAutoTextEntry(entry: AutoTextEntry) {
         if (autoTextEntries.remove(entry) || autoTextEntries.removeAll { it.id == entry.id }) {
             saveAutoTextItems()
+            viewModelScope.launch {
+                autoTextRepo.removeAutoTextFromCloud(entry.id)
+            }
+        }
+    }
+
+    fun syncAutoTextWithCloud(onResult: ((Boolean, String) -> Unit)? = null) {
+        val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+        if (auth.currentUser == null) {
+            val msg = "Harap masuk akun Google terlebih dahulu untuk sinkronisasi cloud."
+            autoTextSyncMessage = msg
+            onResult?.invoke(false, msg)
+            return
+        }
+
+        isSyncingAutoText = true
+        autoTextSyncMessage = "Menyinkronkan Auto Text ke Firestore..."
+        viewModelScope.launch {
+            try {
+                val cloudEntries = autoTextRepo.fetchAutoTextsFromCloud()
+                val localMap = autoTextEntries.associateBy { it.id }.toMutableMap()
+
+                // Merge cloud entries
+                cloudEntries.forEach { cloudItem ->
+                    val existing = localMap[cloudItem.id]
+                    if (existing == null) {
+                        localMap[cloudItem.id] = cloudItem
+                    } else if (cloudItem.updatedAt > existing.updatedAt) {
+                        localMap[cloudItem.id] = cloudItem
+                    }
+                }
+
+                val mergedList = localMap.values.toList()
+                // Sync all to Firestore so cloud database has full set
+                autoTextRepo.syncAllAutoTextsToCloud(mergedList)
+
+                autoTextEntries.clear()
+                autoTextEntries.addAll(mergedList.sortedByDescending { it.updatedAt })
+                saveAutoTextItems()
+
+                val msg = "Berhasil sinkronisasi ${autoTextEntries.size} pintasan Auto Text ke Firestore!"
+                autoTextSyncMessage = msg
+                isSyncingAutoText = false
+                onResult?.invoke(true, msg)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                val msg = "Gagal sinkronisasi Auto Text: ${e.message}"
+                autoTextSyncMessage = msg
+                isSyncingAutoText = false
+                onResult?.invoke(false, msg)
+            }
         }
     }
 
@@ -414,7 +479,7 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         isSyncingCloud = true
         cloudSyncStatus = "Proses sinkronisasi ke cloud..."
         viewModelScope.launch {
-            val ok = cloudBackupRepo.syncAllToCloud(themeConfig, learnedWords, clipboardItems)
+            val ok = cloudBackupRepo.syncAllToCloud(themeConfig, learnedWords, clipboardItems, autoTextEntries.toList())
             if (ok) {
                 cloudSyncStatus = "Sukses! Semua data & setting berhasil disinkron ke Cloud."
                 refreshCloudInspector()
@@ -429,7 +494,7 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         isSyncingCloud = true
         cloudSyncStatus = "Membuat snapshot backup di cloud..."
         viewModelScope.launch {
-            val backupId = cloudBackupRepo.createCloudBackup(themeConfig, learnedWords, clipboardItems)
+            val backupId = cloudBackupRepo.createCloudBackup(themeConfig, learnedWords, clipboardItems, autoTextEntries.toList())
             if (backupId != null) {
                 cloudSyncStatus = "Snapshot backup berhasil dibuat di Cloud (ID: $backupId)"
                 refreshCloudBackups()
@@ -518,6 +583,23 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
                     val snippet = array.getString(i)
                     addClipboardItem(snippet)
                 }
+            }
+
+            if (item.autoTextShortcutsJson.isNotBlank()) {
+                val array = org.json.JSONArray(item.autoTextShortcutsJson)
+                for (i in 0 until array.length()) {
+                    val element = array.get(i)
+                    if (element is org.json.JSONObject) {
+                        val entry = AutoTextEntry.fromJsonObject(element)
+                        val idx = autoTextEntries.indexOfFirst { it.id == entry.id }
+                        if (idx >= 0) {
+                            autoTextEntries[idx] = entry
+                        } else {
+                            autoTextEntries.add(entry)
+                        }
+                    }
+                }
+                saveAutoTextItems()
             }
 
             cloudSyncStatus = "Restore berhasil! Data & setting telah dipulihkan dari Cloud."

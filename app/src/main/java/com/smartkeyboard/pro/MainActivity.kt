@@ -292,14 +292,35 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                     SmartKeyboardView(
                         config = config,
                         bgBitmap = bgBitmap,
+                        customAutoTextEntries = viewModel.autoTextEntries,
                         onKeyPress = { previewText += it },
                         onBackspace = {
                             if (previewText.isNotEmpty()) {
                                 previewText = previewText.dropLast(1)
                             }
                         },
-                        onSpace = { previewText += " " },
+                        onSpace = {
+                            val match = Regex("""([a-zA-Z0-9_\-]+)$""").find(previewText)
+                            val token = match?.value
+                            val matchedEntry = if (!token.isNullOrBlank()) {
+                                viewModel.autoTextEntries.firstOrNull { it.shortcut.equals(token, ignoreCase = true) }
+                            } else null
+
+                            if (matchedEntry != null && token != null) {
+                                previewText = previewText.dropLast(token.length) + matchedEntry.fullText + " "
+                            } else {
+                                previewText += " "
+                            }
+                        },
                         onEnter = { previewText += "\n" },
+                        onSuggestionSelected = { word, charsToDelete ->
+                            val text = if (word.endsWith(" ")) word else "$word "
+                            if (charsToDelete > 0 && previewText.length >= charsToDelete) {
+                                previewText = previewText.dropLast(charsToDelete) + text
+                            } else {
+                                previewText += text
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .wrapContentHeight()
@@ -1113,14 +1134,14 @@ fun ClipboardVaultTab(viewModel: KeyboardViewModel) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Masukkan keyword/pintasan dan teks lengkap yang akan otomatis muncul di bar saran keyboard saat mengetik.",
+                        text = "Masukkan keyword singkatan dan teks lengkap. Saat mengetik di keyboard, ketik keyword lalu tekan tombol SPASI untuk langsung menggantinya ke teks lengkap. Data juga tersinkronisasi ke Firestore.",
                         color = Color(0xFFCBD5E1),
                         fontSize = 12.sp
                     )
                     OutlinedTextField(
                         value = newAutoTextShortcut,
                         onValueChange = { newAutoTextShortcut = it },
-                        label = { Text("Keyword / Pintasan (contoh: thx, alamat, email)") },
+                        label = { Text("Keyword / Singkatan (contoh: thx, rek, halo)") },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
@@ -1133,7 +1154,7 @@ fun ClipboardVaultTab(viewModel: KeyboardViewModel) {
                     OutlinedTextField(
                         value = newAutoTextFullText,
                         onValueChange = { newAutoTextFullText = it },
-                        label = { Text("Isi Teks Lengkap") },
+                        label = { Text("Isi Teks Lengkap (Expansion)") },
                         minLines = 2,
                         maxLines = 4,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -1144,6 +1165,24 @@ fun ClipboardVaultTab(viewModel: KeyboardViewModel) {
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    if (newAutoTextShortcut.isNotBlank() || newAutoTextFullText.isNotBlank()) {
+                        Surface(
+                            color = Color(0xFF0F172A),
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("⚡ Pratinjau Ekspan Spasi:", fontSize = 11.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "Ketik \"${newAutoTextShortcut.ifBlank { "..." }}\" + [Spasi] ➔ \"${newAutoTextFullText.ifBlank { "..." }}\"",
+                                    fontSize = 12.sp,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
                 }
             },
             containerColor = Color(0xFF1E293B),
@@ -1429,28 +1468,68 @@ fun ClipboardVaultTab(viewModel: KeyboardViewModel) {
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        Button(
-                            onClick = {
-                                editingAutoTextEntry = null
-                                newAutoTextShortcut = ""
-                                newAutoTextFullText = ""
-                                showAutoTextDialog = true
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text("Tambah", fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilledTonalButton(
+                                onClick = {
+                                    viewModel.syncAutoTextWithCloud { _, msg ->
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                enabled = !viewModel.isSyncingAutoText,
+                                colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0xFF0F766E)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                if (viewModel.isSyncingAutoText) {
+                                    CircularProgressIndicator(
+                                        color = Color.White,
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(Icons.Default.Refresh, contentDescription = "Sync Cloud", tint = Color.White, modifier = Modifier.size(14.dp))
+                                }
+                                Spacer(modifier = Modifier.size(4.dp))
+                                Text("Sync Cloud", fontSize = 11.sp, color = Color.White)
+                            }
+
+                            Button(
+                                onClick = {
+                                    editingAutoTextEntry = null
+                                    newAutoTextShortcut = ""
+                                    newAutoTextFullText = ""
+                                    showAutoTextDialog = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.size(4.dp))
+                                Text("Tambah", fontSize = 12.sp)
+                            }
                         }
                     }
                     Text(
-                        text = "Ketik keyword/pintasan (misal: thx, alamat, email) saat mengetik, maka teks lengkap akan otomatis muncul di bar saran keyboard!",
+                        text = "Ketik keyword/pintasan (misal: thx, halo, rek) lalu tekan tombol SPASI untuk langsung mengekspansi menjadi teks lengkap otomatis! Juga muncul di bar saran dan tersinkronisasi ke Firestore.",
                         fontSize = 12.sp,
                         color = Color(0xFF94A3B8),
                         lineHeight = 16.sp
                     )
+                    if (viewModel.autoTextSyncMessage != null) {
+                        Surface(
+                            color = Color(0xFF064E3B).copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "☁️ ${viewModel.autoTextSyncMessage}",
+                                color = Color(0xFF6EE7B7),
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -1535,11 +1614,18 @@ fun ClipboardVaultTab(viewModel: KeyboardViewModel) {
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                             )
                                         }
-                                        Text(
-                                            text = "Pintasan",
-                                            color = Color(0xFF64748B),
-                                            fontSize = 10.sp
-                                        )
+                                        Surface(
+                                            color = Color(0xFF334155).copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "+ [Spasi] ➔ Ekspan",
+                                                color = Color(0xFF94A3B8),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
                                     Text(
                                         text = entry.fullText,

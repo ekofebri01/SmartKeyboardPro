@@ -10,6 +10,9 @@ service cloud.firestore {
       match /snippets/{snippetId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      match /auto_text_shortcuts/{shortcutId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
       match /backups/{backupId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }

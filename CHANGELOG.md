@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.4] - 2026-10-25
+
+### ⚡ Fitur Auto-Text Shortcut & Spacebar Expansion
+- **Ekspansi Cepat dengan Tombol Spasi (Spacebar Auto-Expand)**:
+  - Pengguna cukup mengetik keyword/singkatan (contoh: `thx`, `halo`, `alamat`, `rek`) lalu menekan tombol **SPASI**.
+  - Keyboard secara cerdas mendeteksi singkatan kata sebelum kursor, menghapus singkatan tersebut, dan langsung menggantinya (*auto-expand*) menjadi kalimat lengkap yang telah ditentukan pengguna.
+  - Berfungsi mulus di seluruh aplikasi Android (IME InputConnection) dan juga di keyboard pratinjau aplikasi.
+- **Manajemen Auto-Text Lengkap (CRUD UI & Real-Time Preview)**:
+  - Antarmuka baru untuk menambah, mengedit, mencari, dan menghapus daftar pintasan Auto-Text.
+  - Dialog tambah/edit dilengkapi kartu **Pratinjau Ekspan Spasi** interaktif secara real-time (`[keyword] + [Spasi] ➔ [Teks Lengkap]`).
+  - Badge indikator status dan salin cepat ke clipboard.
+- **Sinkronisasi Cloud Database Firestore**:
+  - Auto-Text kini tersimpan dan tersinkronisasi langsung ke Firebase Firestore pada koleksi `/users/{userId}/auto_text_shortcuts/{shortcutId}`.
+  - Tombol **Sync Cloud** di bilah Auto-Text untuk sinkronisasi dua arah instan (merge cloud & lokal).
+  - Snapshot backup cloud dan live Cloud Database Inspector kini otomatis mencakup pintasan Auto-Text.
+  - Keamanan Firestore diperbarui dengan aturan otorisasi berbasis UID pengguna.
+
+### 🔐 Build & Keystore Fingerprint
+- Menaikkan `versionCode` ke `144` dan `versionName` ke `"1.4.4"`.
+- Ditandatangani menggunakan kunci rilis resmi `my-upload-key.jks` dengan skema v1 (JAR) & v2 (APK Signature):
+  - **SHA-1**: `C4:EB:DA:FF:7D:FC:90:07:6F:71:D3:95:BB:BE:F6:60:F9:88:D1:F3`
+  - **SHA-256**: `85:56:64:F7:2E:8C:F5:D5:C3:3C:5F:48:4F:51:83:4A:6A:FF:30:80:6B:F9:9F:69:DF:54:B1:7C:A0:EB:3D:B9`
+- Berkas rilis siap pakai mandiri disediakan: `SmartKeyboardPro-v1.4.4-release-signed.apk`.
+
+---
+
 ## [1.4.3] - 2026-10-25
 
 ### 🔐 Multi-Device & APK Update Optimization

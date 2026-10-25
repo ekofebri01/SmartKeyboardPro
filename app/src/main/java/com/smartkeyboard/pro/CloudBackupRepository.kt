@@ -23,6 +23,7 @@ data class CloudBackupItem(
     val themeConfigJson: String = "",
     val learnedWordsJson: String = "",
     val clipboardSnippetsJson: String = "",
+    val autoTextShortcutsJson: String = "",
     val itemCount: Int = 0
 )
 
@@ -50,7 +51,8 @@ class CloudBackupRepository(
     suspend fun syncAllToCloud(
         config: ThemeConfig,
         learnedWords: List<DictionaryEntry>,
-        snippets: List<String>
+        snippets: List<String>,
+        autoTexts: List<AutoTextEntry> = emptyList()
     ): Boolean {
         val uid = getUid() ?: return false
         return try {
@@ -102,6 +104,19 @@ class CloudBackupRepository(
                 ).await()
             }
 
+            // 4. Sync Auto-Text shortcuts to /users/{uid}/auto_text_shortcuts/{shortcutId}
+            autoTexts.forEach { entry ->
+                userDocRef.collection("auto_text_shortcuts").document(entry.id).set(
+                    mapOf(
+                        "id" to entry.id,
+                        "shortcut" to entry.shortcut.trim().lowercase(),
+                        "fullText" to entry.fullText.trim(),
+                        "userId" to uid,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
+
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -115,7 +130,8 @@ class CloudBackupRepository(
     suspend fun createCloudBackup(
         config: ThemeConfig,
         learnedWords: List<DictionaryEntry>,
-        snippets: List<String>
+        snippets: List<String>,
+        autoTexts: List<AutoTextEntry> = emptyList()
     ): String? {
         val uid = getUid() ?: return null
         val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -153,7 +169,11 @@ class CloudBackupRepository(
             val snippetsArray = JSONArray()
             snippets.forEach { snippetsArray.put(it) }
 
-            val totalItems = learnedWords.size + snippets.size
+            // Auto-Text shortcuts JSON
+            val autoTextArray = JSONArray()
+            autoTexts.forEach { autoTextArray.put(it.toJsonObject()) }
+
+            val totalItems = learnedWords.size + snippets.size + autoTexts.size
 
             val backupMap = mapOf(
                 "backupId" to backupId,
@@ -165,6 +185,7 @@ class CloudBackupRepository(
                 "themeConfigJson" to configObj.toString(),
                 "learnedWordsJson" to wordsArray.toString(),
                 "clipboardSnippetsJson" to snippetsArray.toString(),
+                "autoTextShortcutsJson" to autoTextArray.toString(),
                 "itemCount" to totalItems
             )
 
@@ -199,6 +220,7 @@ class CloudBackupRepository(
                 val themeConfigJson = doc.getString("themeConfigJson") ?: ""
                 val learnedWordsJson = doc.getString("learnedWordsJson") ?: ""
                 val clipboardSnippetsJson = doc.getString("clipboardSnippetsJson") ?: ""
+                val autoTextShortcutsJson = doc.getString("autoTextShortcutsJson") ?: ""
                 val itemCount = doc.getLong("itemCount")?.toInt() ?: 0
 
                 CloudBackupItem(
@@ -210,6 +232,7 @@ class CloudBackupRepository(
                     themeConfigJson = themeConfigJson,
                     learnedWordsJson = learnedWordsJson,
                     clipboardSnippetsJson = clipboardSnippetsJson,
+                    autoTextShortcutsJson = autoTextShortcutsJson,
                     itemCount = itemCount
                 )
             }
@@ -334,6 +357,33 @@ class CloudBackupRepository(
                         updatedAtFormatted = date,
                         jsonContent = summaryObj.toString(2),
                         fieldCount = doc.data?.size ?: 0
+                    )
+                )
+            }
+
+            // 5. Auto Text Shortcuts Collection
+            val autoTextsSnap = userRef.collection("auto_text_shortcuts").get().await()
+            if (!autoTextsSnap.isEmpty) {
+                val autoTextSummary = JSONObject().apply {
+                    put("total_shortcuts", autoTextsSnap.size())
+                    val sampleList = JSONArray()
+                    autoTextsSnap.documents.forEach { d ->
+                        sampleList.put(JSONObject().apply {
+                            put("id", d.id)
+                            put("shortcut", d.getString("shortcut"))
+                            put("fullText", d.getString("fullText"))
+                        })
+                    }
+                    put("shortcuts", sampleList)
+                }
+                list.add(
+                    CloudDocumentInspectorItem(
+                        collectionName = "auto_text_shortcuts",
+                        documentId = "all_shortcuts (${autoTextsSnap.size()} items)",
+                        path = "users/$uid/auto_text_shortcuts/*",
+                        updatedAtFormatted = timeFormat.format(Date()),
+                        jsonContent = autoTextSummary.toString(2),
+                        fieldCount = autoTextsSnap.size()
                     )
                 )
             }

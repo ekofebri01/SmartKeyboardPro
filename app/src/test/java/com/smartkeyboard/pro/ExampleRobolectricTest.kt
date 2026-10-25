@@ -99,4 +99,56 @@ class ExampleRobolectricTest {
         assertEquals("terima", legacyPlain.shortcut)
         assertEquals("Terima kasih atas infonya!", legacyPlain.fullText)
     }
+
+    @Test
+    fun verifyAutoTextFirestoreMapAndDocParsing() {
+        val entry = AutoTextEntry(id = "shortcut_1", shortcut = "halo", fullText = "Halo selamat pagi!")
+        val firestoreMap = entry.toFirestoreMap(userId = "user_abc")
+        assertEquals("shortcut_1", firestoreMap["id"])
+        assertEquals("halo", firestoreMap["shortcut"])
+        assertEquals("Halo selamat pagi!", firestoreMap["fullText"])
+        assertEquals("user_abc", firestoreMap["userId"])
+
+        val parsedFromDoc = AutoTextEntry.fromFirestoreDoc(
+            data = mapOf(
+                "id" to "shortcut_1",
+                "shortcut" to "halo",
+                "fullText" to "Halo selamat pagi!",
+                "updatedAt" to 1700000000000L
+            ),
+            docId = "shortcut_1"
+        )
+        assertEquals("shortcut_1", parsedFromDoc.id)
+        assertEquals("halo", parsedFromDoc.shortcut)
+        assertEquals("Halo selamat pagi!", parsedFromDoc.fullText)
+    }
+
+    @Test
+    fun verifyAutoTextSpaceExpansionMatching() {
+        val list = listOf(
+            AutoTextEntry(shortcut = "thx", fullText = "Terima kasih banyak!"),
+            AutoTextEntry(shortcut = "rek", fullText = "BCA 1234567890"),
+            AutoTextEntry(shortcut = "alamat", fullText = "Jl. Sudirman No. 123")
+        )
+
+        // Case 1: Exact match lowercase
+        val match1 = list.firstOrNull { it.shortcut.equals("thx", ignoreCase = true) }
+        assertNotNull(match1)
+        assertEquals("Terima kasih banyak!", match1?.fullText)
+
+        // Case 2: Case-insensitive match (THX)
+        val match2 = list.firstOrNull { it.shortcut.equals("THX", ignoreCase = true) }
+        assertNotNull(match2)
+        assertEquals("Terima kasih banyak!", match2?.fullText)
+
+        // Case 3: Token matching from typed sentence preceding space
+        val beforeCursor = "Silakan transfer ke rek"
+        val tokenMatch = Regex("""([a-zA-Z0-9_\-]+)$""").find(beforeCursor)
+        assertNotNull(tokenMatch)
+        val token = tokenMatch!!.value
+        assertEquals("rek", token)
+        val matchedEntry = list.firstOrNull { it.shortcut.equals(token, ignoreCase = true) }
+        assertNotNull(matchedEntry)
+        assertEquals("BCA 1234567890", matchedEntry?.fullText)
+    }
 }
