@@ -34,8 +34,20 @@ Builds:
     subdir: app
     gradle:
       - yes
+  - versionName: 1.4.2
+    versionCode: 142
+    commit: v1.4.2
+    subdir: app
+    gradle:
+      - yes
+  - versionName: 1.4.3
+    versionCode: 143
+    commit: v1.4.3
+    subdir: app
+    gradle:
+      - yes
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.2.0
-CurrentVersionCode: 120
+CurrentVersion: 1.4.3
+CurrentVersionCode: 143

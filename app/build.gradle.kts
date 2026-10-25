@@ -12,8 +12,8 @@ android {
         applicationId = "com.smartkeyboard.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 140
-        versionName = "1.4.0"
+        versionCode = 143
+        versionName = "1.4.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -30,6 +30,8 @@ android {
                 storePassword = System.getenv("STORE_PASSWORD") ?: "android"
                 keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
                 keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }

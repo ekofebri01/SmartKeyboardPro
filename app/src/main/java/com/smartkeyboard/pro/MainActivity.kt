@@ -33,7 +33,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -300,6 +302,7 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                         onEnter = { previewText += "\n" },
                         modifier = Modifier
                             .fillMaxWidth()
+                            .wrapContentHeight()
                             .padding(4.dp)
                             .clip(RoundedCornerShape(10.dp))
                     )
@@ -316,7 +319,385 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Section: Custom Background Image
+            // Section 1: Predefined Color Profiles
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Preset Color Profiles",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "${viewModel.predefinedThemes.size} Profiles",
+                            fontSize = 12.sp,
+                            color = Color(0xFF38BDF8)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        viewModel.predefinedThemes.forEach { theme ->
+                            val isSelected = config.themeId == theme.id
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .width(96.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) Color(0xFF334155) else Color(0xFF0F172A))
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { viewModel.selectPredefinedTheme(theme) }
+                                    .padding(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(CircleShape)
+                                        .background(theme.backgroundColor)
+                                        .border(2.dp, theme.accentColor, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(theme.keyColor)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = theme.name,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 2: Custom Color Studio & Quick Palette Swatches
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "Custom Color Swatches",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = Color.White
+                    )
+
+                    // Quick Swatches Color List
+                    val backgroundSwatches = listOf(
+                        Color(0xFF0F172A) to "Slate",
+                        Color(0xFF18092B) to "Cyber",
+                        Color(0xFF062319) to "Emerald",
+                        Color(0xFF2B0F1A) to "Sunset",
+                        Color(0xFF2E2B40) to "Lavender",
+                        Color(0xFF000000) to "AMOLED",
+                        Color(0xFFF8FAFC) to "Light"
+                    )
+
+                    val keySwatches = listOf(
+                        Color(0xFF1E293B) to "Dark Key",
+                        Color(0xFF2D144E) to "Cyber Key",
+                        Color(0xFF0D3E2F) to "Emerald Key",
+                        Color(0xFF481B2D) to "Sunset Key",
+                        Color(0xFF433D60) to "Lavender Key",
+                        Color(0xFF18181B) to "Black Key",
+                        Color(0xFFE2E8F0) to "Light Key"
+                    )
+
+                    val accentSwatches = listOf(
+                        Color(0xFF38BDF8) to "Cyan",
+                        Color(0xFF06B6D4) to "Neon Blue",
+                        Color(0xFF34D399) to "Mint",
+                        Color(0xFFF97316) to "Orange",
+                        Color(0xFFC084FC) to "Purple",
+                        Color(0xFFFACC15) to "Yellow",
+                        Color(0xFFF472B6) to "Pink"
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("1. Background Canvas Color", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            backgroundSwatches.forEach { (color, label) ->
+                                val isSelected = config.themeId == "custom" && config.backgroundColor == color
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .border(
+                                            width = if (isSelected) 3.dp else 1.dp,
+                                            color = if (isSelected) Color(0xFF38BDF8) else Color(0xFF475569),
+                                            shape = CircleShape
+                                        )
+                                        .clickable { viewModel.updateCustomColor(bgColor = color) }
+                                )
+                            }
+                        }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("2. Key Button Surface Color", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            keySwatches.forEach { (color, label) ->
+                                val isSelected = config.themeId == "custom" && config.keyColor == color
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .border(
+                                            width = if (isSelected) 3.dp else 1.dp,
+                                            color = if (isSelected) Color(0xFF38BDF8) else Color(0xFF475569),
+                                            shape = CircleShape
+                                        )
+                                        .clickable { viewModel.updateCustomColor(keyColor = color) }
+                                )
+                            }
+                        }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("3. Accent Highlight Color", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            accentSwatches.forEach { (color, label) ->
+                                val isSelected = config.themeId == "custom" && config.accentColor == color
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .border(
+                                            width = if (isSelected) 3.dp else 1.dp,
+                                            color = if (isSelected) Color.White else Color(0xFF475569),
+                                            shape = CircleShape
+                                        )
+                                        .clickable { viewModel.updateCustomColor(accentColor = color) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 3: Key Shapes & Heights
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "Custom Keycap Shapes",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = Color.White
+                    )
+
+                    val keyShapes = listOf(
+                        Triple("rounded", "Rounded", "Sudut Membulat Standard"),
+                        Triple("pill", "Capsule / Pill", "Full Rounded Oval"),
+                        Triple("squircle", "Soft Squircle", "Lengkung Modern Smooth"),
+                        Triple("cut_corner", "Cut Corner", "Hexagon / Octagon Style"),
+                        Triple("sharp", "Sharp", "Sudut Tajam Rectangular")
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        keyShapes.forEach { (style, title, desc) ->
+                            val isSelected = config.keyShapeStyle == style
+                            val shape = when (style) {
+                                "pill" -> CircleShape
+                                "squircle" -> RoundedCornerShape(12.dp)
+                                "sharp" -> RectangleShape
+                                "cut_corner" -> CutCornerShape(8.dp)
+                                else -> RoundedCornerShape(8.dp)
+                            }
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .width(105.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) Color(0xFF334155) else Color(0xFF0F172A))
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { viewModel.updateKeyShapeStyle(style) }
+                                    .padding(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 48.dp, height = 30.dp)
+                                        .clip(shape)
+                                        .background(config.accentColor)
+                                        .padding(2.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "A",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = title,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Key Height: ${config.keyHeightDp} dp",
+                        color = Color.White,
+                        fontSize = 13.sp
+                    )
+                    Slider(
+                        value = config.keyHeightDp.toFloat(),
+                        onValueChange = { viewModel.updateKeyHeight(it.toInt()) },
+                        valueRange = 36f..54f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF38BDF8),
+                            activeTrackColor = Color(0xFF38BDF8)
+                        )
+                    )
+
+                    Text(
+                        text = "Corner Radius Fine-Tuning: ${config.cornerRadiusDp} dp",
+                        color = Color.White,
+                        fontSize = 13.sp
+                    )
+                    Slider(
+                        value = config.cornerRadiusDp.toFloat(),
+                        onValueChange = { viewModel.updateCornerRadius(it.toInt()) },
+                        valueRange = 0f..24f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF38BDF8),
+                            activeTrackColor = Color(0xFF38BDF8)
+                        )
+                    )
+                }
+            }
+
+            // Section 4: Background Texture & Gradient Patterns
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Background Textures & Gradients",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = Color.White
+                    )
+
+                    val patterns = listOf(
+                        "none" to "Solid Flat",
+                        "cyber_gradient" to "Cyber Gradient",
+                        "sunset_gradient" to "Sunset Radial",
+                        "emerald_glow" to "Emerald Glow",
+                        "carbon_grid" to "Carbon Grid",
+                        "dots_pattern" to "Mesh Dots",
+                        "neon_cyber" to "Neon Cyber"
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        patterns.forEach { (patternKey, label) ->
+                            val isSelected = config.backgroundPattern == patternKey
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.updateBackgroundPattern(patternKey) },
+                                label = { Text(label, fontSize = 12.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF38BDF8),
+                                    selectedLabelColor = Color(0xFF0F172A),
+                                    containerColor = Color(0xFF0F172A),
+                                    labelColor = Color.White
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Section 5: Custom Background Photo
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
                 shape = RoundedCornerShape(16.dp),
@@ -339,7 +720,7 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                                 color = Color.White
                             )
                             Text(
-                                text = if (config.customImagePath != null) "Foto aktif (tetap muncul pada semua preset warna)" else "Personalize your keyboard with any photo",
+                                text = if (config.customImagePath != null) "Foto aktif (tampil pada seluruh latar keyboard)" else "Personalize your keyboard with any photo from gallery",
                                 fontSize = 12.sp,
                                 color = if (config.customImagePath != null) Color(0xFF38BDF8) else Color(0xFF94A3B8)
                             )
@@ -369,7 +750,7 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(modifier = Modifier.size(8.dp))
                         Text(
-                            if (config.customImagePath != null) "Choose Different Photo" else "Upload Custom Image"
+                            if (config.customImagePath != null) "Choose Different Photo" else "Upload Custom Photo"
                         )
                     }
 
@@ -392,290 +773,139 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                 }
             }
 
-        // Section: Predefined Themes
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            // Section 6: Keyboard Layout & Shortcuts
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "Preset Color Themes",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    color = Color.White
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    viewModel.predefinedThemes.forEach { theme ->
-                        val isSelected = config.themeId == theme.id
+                    Text(
+                        text = "Layout & Symbol Shortcuts",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = Color.White
+                    )
 
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .width(90.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) Color(0xFF334155) else Color(0xFF0F172A))
-                                .border(
-                                    width = if (isSelected) 2.dp else 1.dp,
-                                    color = if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .clickable { viewModel.selectPredefinedTheme(theme) }
-                                .padding(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(theme.backgroundColor)
-                                    .border(2.dp, theme.accentColor, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(theme.keyColor)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = theme.name,
-                                fontSize = 11.sp,
-                                color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                                maxLines = 1
-                            )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Dedicated Number Row", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("Display row of numbers (1–0) above QWERTY", color = Color(0xFF94A3B8), fontSize = 12.sp)
                         }
-                    }
-                }
-            }
-        }
-
-        // Section: Keyboard Layout & Symbols
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "Layout & Symbol Shortcuts",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    color = Color.White
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Dedicated Number Row", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("Display row of numbers (1–0) above QWERTY", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                    }
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Switch(
-                        checked = config.showNumberRow,
-                        onCheckedChange = { viewModel.toggleNumberRow(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF0284C7)
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Switch(
+                            checked = config.showNumberRow,
+                            onCheckedChange = { viewModel.toggleNumberRow(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF0284C7)
+                            )
                         )
-                    )
-                }
-
-                HorizontalDivider(color = Color(0xFF334155))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Show Secondary Symbols", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("Display symbol hints (!, @, #, $, etc.) on letter keys", color = Color(0xFF94A3B8), fontSize = 12.sp)
                     }
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Switch(
-                        checked = config.showKeySymbols,
-                        onCheckedChange = { viewModel.toggleKeySymbols(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF0284C7)
+
+                    HorizontalDivider(color = Color(0xFF334155))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Show Secondary Symbols", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("Display symbol hints (!, @, #, $, etc.) on letter keys", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Switch(
+                            checked = config.showKeySymbols,
+                            onCheckedChange = { viewModel.toggleKeySymbols(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF0284C7)
+                            )
                         )
-                    )
-                }
-
-                HorizontalDivider(color = Color(0xFF334155))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Long-Press for Symbols", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("Hold any letter key to immediately input its symbol", color = Color(0xFF94A3B8), fontSize = 12.sp)
                     }
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Switch(
-                        checked = config.enableLongPressSymbols,
-                        onCheckedChange = { viewModel.toggleLongPressSymbols(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF0284C7)
+
+                    HorizontalDivider(color = Color(0xFF334155))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Long-Press for Symbols", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("Hold any letter key to immediately input its symbol", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Switch(
+                            checked = config.enableLongPressSymbols,
+                            onCheckedChange = { viewModel.toggleLongPressSymbols(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF0284C7)
+                            )
                         )
-                    )
-                }
-
-                HorizontalDivider(color = Color(0xFF334155))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Smart Suggestion Bar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("Show word predictions from personal dictionary above keyboard", color = Color(0xFF94A3B8), fontSize = 12.sp)
                     }
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Switch(
-                        checked = config.showSuggestionBar,
-                        onCheckedChange = { viewModel.toggleSuggestionBar(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF0284C7)
+
+                    HorizontalDivider(color = Color(0xFF334155))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Smart Suggestion Bar", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("Show word predictions & auto text shortcuts above keyboard", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Switch(
+                            checked = config.showSuggestionBar,
+                            onCheckedChange = { viewModel.toggleSuggestionBar(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF0284C7)
+                            )
                         )
-                    )
-                }
-
-                HorizontalDivider(color = Color(0xFF334155))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-Space After Word", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        Text("Automatically insert a space when tapping a suggested word", color = Color(0xFF94A3B8), fontSize = 12.sp)
                     }
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Switch(
-                        checked = config.autoSpaceAfterWord,
-                        onCheckedChange = { viewModel.toggleAutoSpace(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF0284C7)
-                        )
-                    )
-                }
-            }
-        }
 
-        // Section: Key Shapes & Dimensions
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "Keyboard Shape & Height",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    color = Color.White
-                )
+                    HorizontalDivider(color = Color(0xFF334155))
 
-                Text("Keycap Shape Style", color = Color(0xFF94A3B8), fontSize = 13.sp)
-                val shapes = listOf(
-                    "rounded" to "Rounded",
-                    "pill" to "Capsule / Pill",
-                    "squircle" to "Squircle",
-                    "sharp" to "Sharp"
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    shapes.forEach { (key, label) ->
-                        val isSelected = config.keyShapeStyle == key
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.updateKeyShapeStyle(key) },
-                            label = { Text(label, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF38BDF8),
-                                selectedLabelColor = Color(0xFF0F172A),
-                                containerColor = Color(0xFF0F172A),
-                                labelColor = Color.White
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Auto-Space After Word", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("Automatically insert a space when tapping a suggested word", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Switch(
+                            checked = config.autoSpaceAfterWord,
+                            onCheckedChange = { viewModel.toggleAutoSpace(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF0284C7)
                             )
                         )
                     }
                 }
-
-                Text(
-                    text = "Key Height: ${config.keyHeightDp} dp",
-                    color = Color.White,
-                    fontSize = 13.sp
-                )
-                Slider(
-                    value = config.keyHeightDp.toFloat(),
-                    onValueChange = { viewModel.updateKeyHeight(it.toInt()) },
-                    valueRange = 36f..54f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF38BDF8),
-                        activeTrackColor = Color(0xFF38BDF8)
-                    )
-                )
-
-                Text(
-                    text = "Corner Radius Fine-Tuning: ${config.cornerRadiusDp} dp",
-                    color = Color.White,
-                    fontSize = 13.sp
-                )
-                Slider(
-                    value = config.cornerRadiusDp.toFloat(),
-                    onValueChange = { viewModel.updateCornerRadius(it.toInt()) },
-                    valueRange = 0f..24f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF38BDF8),
-                        activeTrackColor = Color(0xFF38BDF8)
-                    )
-                )
             }
-        }
 
-        // Section: Sound & Haptic Feedback
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
+            // Section 7: Sound & Haptic Feedback
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C2541)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)

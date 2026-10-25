@@ -11,6 +11,7 @@ import android.text.InputType
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.View
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -20,10 +21,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberUpdatedState
-import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,21 +31,43 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +86,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import kotlinx.coroutines.delay
 
 enum class KeyboardMode {
     ALPHA,
@@ -421,7 +441,44 @@ fun SmartKeyboardView(
     val row2Num = listOf("@", "#", "$", "%", "&", "-", "+", "(", ")")
     val row3Num = listOf("*", "\"", "'", ":", ";", "!", "?")
 
-    val emojis = listOf("😊", "😂", "❤️", "👍", "🔥", "🎉", "✨", "🙏", "😎", "🚀", "💡", "💯")
+    val emojiCategories = remember {
+        listOf(
+            "😀" to listOf(
+                "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "🥲", "☺️",
+                "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗",
+                "😙", "😚", "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓",
+                "😎", "🥸", "🤩", "🥳", "😏", "😒", "😞", "😔", "😟", "😕",
+                "🙁", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "🤯", "😳",
+                "🥵", "🥶", "😱", "😨", "😰", "😥", "😓", "🤗", "🤔", "🤭",
+                "🤫", "🤥", "😶", "😐", "😑", "😬", "🙄", "😯", "😴", "🤤"
+            ),
+            "👋" to listOf(
+                "👍", "👎", "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍️", "💅",
+                "🤳", "💪", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉",
+                "👆", "👇", "☝️", "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌",
+                "🤏", "🫳", "🫴", "🫵", "👂", "👃", "🧠", "👀", "👁️", "👅"
+            ),
+            "❤️" to listOf(
+                "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔",
+                "❤️‍🔥", "❤️‍🩹", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝",
+                "💟", "💌", "💋", "🫂", "🌹", "🌸", "💐", "🌺", "🌷", "🌻",
+                "✨", "⭐", "🌟", "💫", "🔥", "🌈", "☀️", "🌙", "☁️", "⚡"
+            ),
+            "🎉" to listOf(
+                "🎉", "🎊", "🎈", "🎁", "🏆", "🥇", "🥈", "🥉", "👑", "💎",
+                "🚀", "💡", "💰", "💵", "📱", "💻", "🔔", "🎵", "🎶", "☕",
+                "🍕", "🍔", "🍟", "🍻", "🥂", "🎂", "🍰", "🍦", "🍿", "🍩",
+                "🍪", "🍫", "🍬", "🍭", "⚽", "🏀", "🎮", "🎲", "🎯", "💯"
+            ),
+            "🐱" to listOf(
+                "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
+                "🦁", "🐮", "🐷", "🐸", "🐵", "🐔", "🐧", "🐦", "🦆", "🦅",
+                "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌",
+                "🐞", "🐢", "🐍", "🐙", "🐬", "🐳", "🦈", "🐘", "🦒", "🦩"
+            )
+        )
+    }
+    var selectedCategoryIndex by remember { mutableStateOf(0) }
 
     // Secondary symbols mappings
     val row1Symbols = if (config.showNumberRow) {
@@ -452,15 +509,26 @@ fun SmartKeyboardView(
     val effectiveRadius = when (config.keyShapeStyle) {
         "pill" -> config.keyHeightDp / 2
         "squircle" -> 14
-        "sharp" -> 2
+        "sharp" -> 0
+        "cut_corner" -> config.cornerRadiusDp.coerceAtLeast(6)
         else -> config.cornerRadiusDp
     }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .wrapContentHeight()
             .background(config.backgroundColor)
     ) {
+        // Preset background pattern/gradient if configured
+        if (config.backgroundPattern != "none") {
+            KeyboardBackgroundPattern(
+                pattern = config.backgroundPattern,
+                baseColor = config.backgroundColor,
+                modifier = Modifier.matchParentSize()
+            )
+        }
+
         // Custom photo background if active
         if (bgBitmap != null && config.customImagePath != null) {
             Image(
@@ -482,7 +550,7 @@ fun SmartKeyboardView(
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Suggestion Bar (Kamus Pribadi & Auto Text Expander)
+            // Suggestion Bar (Kamus Pribadi & Auto Text Expander & Persistent Settings)
             if (config.showSuggestionBar && mode == KeyboardMode.ALPHA) {
                 Surface(
                     modifier = Modifier
@@ -491,192 +559,194 @@ fun SmartKeyboardView(
                     color = actionKeyColor,
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    if (matchingAutoTexts.isNotEmpty()) {
-                        // Priority: Keyword matched Auto Text!
-                        LazyRow(
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            contentAlignment = Alignment.CenterStart
                         ) {
-                            items(matchingAutoTexts, key = { it.id }) { entry ->
-                                val charsToDelete = currentComposingWord.length
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(config.accentColor.copy(alpha = 0.25f))
-                                        .clickable {
-                                            currentComposingWord = ""
-                                            onSuggestionSelected(entry.fullText, charsToDelete)
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                            if (matchingAutoTexts.isNotEmpty()) {
+                                LazyRow(
+                                    modifier = Modifier.fillMaxSize(),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Text(
-                                        text = "⚡ ${entry.shortcut}",
-                                        color = config.accentColor,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "→",
-                                        color = config.textColor.copy(alpha = 0.6f),
-                                        fontSize = 12.sp
-                                    )
-                                    Text(
-                                        text = entry.fullText,
-                                        color = config.textColor,
-                                        fontSize = 12.sp,
-                                        maxLines = 1
-                                    )
+                                    items(matchingAutoTexts, key = { it.id }) { entry ->
+                                        val charsToDelete = currentComposingWord.length
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(config.accentColor.copy(alpha = 0.25f))
+                                                .clickable {
+                                                    currentComposingWord = ""
+                                                    onSuggestionSelected(entry.fullText, charsToDelete)
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "⚡ ${entry.shortcut}",
+                                                color = config.accentColor,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "→",
+                                                color = config.textColor.copy(alpha = 0.6f),
+                                                fontSize = 12.sp
+                                            )
+                                            Text(
+                                                text = entry.fullText,
+                                                color = config.textColor,
+                                                fontSize = 12.sp,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                    items(suggestions) { suggestion ->
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(config.keyColor.copy(alpha = 0.5f))
+                                                .clickable {
+                                                    val charsToDelete = currentComposingWord.length
+                                                    PersonalDictionary.learnWord(context, suggestion)
+                                                    currentComposingWord = ""
+                                                    onSuggestionSelected(suggestion, charsToDelete)
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = suggestion,
+                                                color = config.textColor,
+                                                fontSize = 12.sp,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
                                 }
+                            } else if (suggestions.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    suggestions.forEachIndexed { idx, suggestion ->
+                                        val isPrimary = idx == 0 || (suggestions.size > 1 && idx == 1)
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .padding(vertical = 3.dp, horizontal = 2.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (isPrimary) config.accentColor.copy(alpha = 0.22f) else Color.Transparent)
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        val charsToDelete = currentComposingWord.length
+                                                        PersonalDictionary.learnWord(context, suggestion)
+                                                        currentComposingWord = ""
+                                                        onSuggestionSelected(suggestion, charsToDelete)
+                                                    },
+                                                    onLongClick = {
+                                                        PersonalDictionary.removeWord(context, suggestion)
+                                                        Toast.makeText(context, "Kata '$suggestion' telah dihapus dari kamus", Toast.LENGTH_SHORT).show()
+                                                        currentComposingWord = ""
+                                                    }
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = suggestion,
+                                                color = if (isPrimary) config.accentColor else config.textColor,
+                                                fontSize = 13.sp,
+                                                fontWeight = if (isPrimary) FontWeight.Bold else FontWeight.Normal,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            } else if (autoTextEntries.isNotEmpty()) {
+                                LazyRow(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(config.accentColor.copy(alpha = 0.22f))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "⚡ Auto",
+                                                color = config.accentColor,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    items(autoTextEntries, key = { it.id }) { entry ->
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(config.keyColor.copy(alpha = 0.5f))
+                                                .clickable {
+                                                    onSuggestionSelected(entry.fullText, 0)
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "[${entry.shortcut}]",
+                                                color = config.accentColor,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = entry.fullText,
+                                                color = config.textColor,
+                                                fontSize = 12.sp,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "💡 Ketik kata/pintasan untuk prediksi",
+                                    color = config.textColor.copy(alpha = 0.5f),
+                                    fontSize = 12.sp,
+                                    maxLines = 1
+                                )
                             }
+                        }
 
-                            items(suggestions) { suggestion ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(config.keyColor.copy(alpha = 0.5f))
-                                        .clickable {
-                                            val charsToDelete = currentComposingWord.length
-                                            PersonalDictionary.learnWord(context, suggestion)
-                                            currentComposingWord = ""
-                                            onSuggestionSelected(suggestion, charsToDelete)
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = suggestion,
-                                        color = config.textColor,
-                                        fontSize = 12.sp,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                    } else if (suggestions.isNotEmpty()) {
-                        Row(
+                        // Persistent Settings Button in Suggestion Bar
+                        Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceEvenly
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(config.accentColor.copy(alpha = 0.2f))
+                                .clickable(onClick = onOpenSettings),
+                            contentAlignment = Alignment.Center
                         ) {
-                            suggestions.forEachIndexed { idx, suggestion ->
-                                val isPrimary = idx == 0 || (suggestions.size > 1 && idx == 1)
-                                @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .padding(vertical = 3.dp, horizontal = 2.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isPrimary) config.accentColor.copy(alpha = 0.22f) else Color.Transparent)
-                                        .combinedClickable(
-                                            onClick = {
-                                                val charsToDelete = currentComposingWord.length
-                                                PersonalDictionary.learnWord(context, suggestion)
-                                                currentComposingWord = ""
-                                                onSuggestionSelected(suggestion, charsToDelete)
-                                            },
-                                            onLongClick = {
-                                                PersonalDictionary.removeWord(context, suggestion)
-                                                Toast.makeText(context, "Kata '$suggestion' telah dihapus dari kamus", Toast.LENGTH_SHORT).show()
-                                                currentComposingWord = ""
-                                            }
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = suggestion,
-                                        color = if (isPrimary) config.accentColor else config.textColor,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (isPrimary) FontWeight.Bold else FontWeight.Normal,
-                                        maxLines = 1
-                                    )
-                                }
-                                if (idx < suggestions.size - 1) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(1.dp)
-                                            .height(14.dp)
-                                            .background(config.textColor.copy(alpha = 0.2f))
-                                    )
-                                }
-                            }
-                        }
-                    } else if (autoTextEntries.isNotEmpty()) {
-                        LazyRow(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(config.accentColor.copy(alpha = 0.22f))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "⚡ Auto Text",
-                                        color = config.accentColor,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            items(autoTextEntries, key = { it.id }) { entry ->
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(config.keyColor.copy(alpha = 0.5f))
-                                        .clickable {
-                                            onSuggestionSelected(entry.fullText, 0)
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = "[${entry.shortcut}]",
-                                        color = config.accentColor,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = entry.fullText,
-                                        color = config.textColor,
-                                        fontSize = 12.sp,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "💡 Ketik kata/pintasan untuk prediksi",
-                                color = config.textColor.copy(alpha = 0.5f),
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = "Auto-Spasi: ON",
-                                color = config.accentColor.copy(alpha = 0.8f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Pengaturan",
+                                tint = config.accentColor,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -937,48 +1007,80 @@ fun SmartKeyboardView(
                 }
 
                 KeyboardMode.EMOJI -> {
+                    // Category tab row + Quick backspace key
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height((config.keyHeightDp - 6).coerceAtLeast(36).dp)
+                            .padding(horizontal = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        emojis.take(6).forEach { emoji ->
-                            ThemedKeyButton(
-                                text = emoji,
-                                secondarySymbol = null,
-                                showSecondarySymbol = false,
-                                keyColor = effectiveKeyColor,
-                                textColor = config.textColor,
-                                cornerRadiusDp = effectiveRadius,
-                                keyHeightDp = config.keyHeightDp,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onKeyPress(emoji) },
-                                onLongClick = { onKeyPress(emoji) }
-                            )
+                        LazyRow(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            itemsIndexed(emojiCategories) { index, (catIcon, _) ->
+                                val isSelected = selectedCategoryIndex == index
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) config.accentColor.copy(alpha = 0.3f) else actionKeyColor)
+                                        .clickable { selectedCategoryIndex = index }
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = catIcon,
+                                        fontSize = 18.sp
+                                    )
+                                }
+                            }
                         }
+
+                        RepeatingDeleteKeyButton(
+                            text = "⌫",
+                            accentColor = config.accentColor,
+                            defaultBg = actionKeyColor,
+                            defaultText = config.textColor,
+                            cornerRadiusDp = effectiveRadius,
+                            keyHeightDp = (config.keyHeightDp - 6).coerceAtLeast(36),
+                            modifier = Modifier.width(52.dp),
+                            onDelete = onBackspace
+                        )
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+
+                    // Emoji Grid with 7 columns and smooth scrolling
+                    val currentCategoryEmojis = emojiCategories.getOrNull(selectedCategoryIndex)?.second ?: emptyList()
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(7),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(((config.keyHeightDp * 3) + 8).dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        emojis.drop(6).take(6).forEach { emoji ->
-                            ThemedKeyButton(
-                                text = emoji,
-                                secondarySymbol = null,
-                                showSecondarySymbol = false,
-                                keyColor = effectiveKeyColor,
-                                textColor = config.textColor,
-                                cornerRadiusDp = effectiveRadius,
-                                keyHeightDp = config.keyHeightDp,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onKeyPress(emoji) },
-                                onLongClick = { onKeyPress(emoji) }
-                            )
+                        items(currentCategoryEmojis) { emoji ->
+                            Box(
+                                modifier = Modifier
+                                    .height(config.keyHeightDp.dp)
+                                    .clip(getKeyShape(config.keyShapeStyle, effectiveRadius))
+                                    .background(effectiveKeyColor)
+                                    .clickable { onKeyPress(emoji) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = emoji,
+                                    fontSize = 22.sp
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // Bottom control row: Mode toggle, Emoji, Comma, Space, Period, Enter
+            // Bottom control row: Mode toggle, Emoji/Symbols, Space, Period, Enter (Clean, no duplicate ABC, enlarged Enter key)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -991,7 +1093,7 @@ fun SmartKeyboardView(
                     defaultText = config.textColor,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1.2f),
+                    modifier = Modifier.weight(1.1f),
                     onClick = {
                         if (currentComposingWord.isNotBlank()) {
                             PersonalDictionary.learnWord(context, currentComposingWord)
@@ -1003,55 +1105,34 @@ fun SmartKeyboardView(
                 )
 
                 ThemedActionKeyButton(
-                    text = if (mode == KeyboardMode.EMOJI) "ABC" else "😊",
+                    text = when (mode) {
+                        KeyboardMode.EMOJI -> "?123"
+                        else -> "😊"
+                    },
                     accentColor = config.accentColor,
                     defaultBg = actionKeyColor,
                     defaultText = config.textColor,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(0.9f),
+                    modifier = Modifier.weight(1.0f),
                     onClick = {
                         if (currentComposingWord.isNotBlank()) {
                             PersonalDictionary.learnWord(context, currentComposingWord)
                             currentComposingWord = ""
                         }
-                        mode = if (mode == KeyboardMode.EMOJI) KeyboardMode.ALPHA else KeyboardMode.EMOJI
+                        mode = when (mode) {
+                            KeyboardMode.EMOJI -> KeyboardMode.NUMBERS
+                            else -> KeyboardMode.EMOJI
+                        }
                     }
                 )
 
-                // Comma key
-                ThemedKeyButton(
-                    text = ",",
-                    secondarySymbol = null,
-                    showSecondarySymbol = false,
-                    keyColor = effectiveKeyColor,
-                    textColor = config.textColor,
-                    symbolColor = config.accentColor,
-                    cornerRadiusDp = effectiveRadius,
-                    keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        if (currentComposingWord.isNotBlank()) {
-                            PersonalDictionary.learnWord(context, currentComposingWord)
-                            currentComposingWord = ""
-                        }
-                        onKeyPress(",")
-                    },
-                    onLongClick = {
-                        if (currentComposingWord.isNotBlank()) {
-                            PersonalDictionary.learnWord(context, currentComposingWord)
-                            currentComposingWord = ""
-                        }
-                        onKeyPress(",")
-                    }
-                )
-
-                // Space bar
+                // Space bar (generous width)
                 Box(
                     modifier = Modifier
-                        .weight(2.8f)
+                        .weight(3.0f)
                         .height(config.keyHeightDp.dp)
-                        .clip(RoundedCornerShape(effectiveRadius.dp))
+                        .clip(getKeyShape(config.keyShapeStyle, effectiveRadius))
                         .background(effectiveKeyColor)
                         .combinedClickable(
                             onClick = {
@@ -1089,7 +1170,7 @@ fun SmartKeyboardView(
                     symbolColor = config.accentColor,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1.0f),
                     onClick = {
                         if (currentComposingWord.isNotBlank()) {
                             PersonalDictionary.learnWord(context, currentComposingWord)
@@ -1106,21 +1187,56 @@ fun SmartKeyboardView(
                     }
                 )
 
+                // Enter key (prominent, unclipped, bold high-res return arrow icon)
                 ThemedActionKeyButton(
-                    text = "↵",
                     accentColor = config.accentColor,
                     defaultBg = config.accentColor,
                     defaultText = Color.White,
                     isHighlighted = true,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1.2f),
+                    modifier = Modifier.weight(1.8f),
                     onClick = {
                         if (currentComposingWord.isNotBlank()) {
                             PersonalDictionary.learnWord(context, currentComposingWord)
                             currentComposingWord = ""
                         }
                         onEnter()
+                    },
+                    icon = {
+                        Canvas(modifier = Modifier.size(24.dp)) {
+                            val strokeWidth = 2.8.dp.toPx()
+                            val w = size.width
+                            val h = size.height
+                            val returnPath = Path().apply {
+                                moveTo(w * 0.76f, h * 0.28f)
+                                lineTo(w * 0.76f, h * 0.65f)
+                                lineTo(w * 0.22f, h * 0.65f)
+                            }
+                            drawPath(
+                                path = returnPath,
+                                color = Color.White,
+                                style = Stroke(
+                                    width = strokeWidth,
+                                    cap = StrokeCap.Round,
+                                    join = StrokeJoin.Round
+                                )
+                            )
+                            val arrowHead = Path().apply {
+                                moveTo(w * 0.44f, h * 0.43f)
+                                lineTo(w * 0.22f, h * 0.65f)
+                                lineTo(w * 0.44f, h * 0.87f)
+                            }
+                            drawPath(
+                                path = arrowHead,
+                                color = Color.White,
+                                style = Stroke(
+                                    width = strokeWidth,
+                                    cap = StrokeCap.Round,
+                                    join = StrokeJoin.Round
+                                )
+                            )
+                        }
                     }
                 )
             }
@@ -1137,16 +1253,18 @@ fun ThemedKeyButton(
     keyColor: Color,
     textColor: Color,
     symbolColor: Color = textColor,
+    keyShapeStyle: String = "rounded",
     cornerRadiusDp: Int,
     keyHeightDp: Int,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    val shape = getKeyShape(keyShapeStyle, cornerRadiusDp)
     Box(
         modifier = modifier
             .height(keyHeightDp.dp)
-            .clip(RoundedCornerShape(cornerRadiusDp.dp))
+            .clip(shape)
             .background(keyColor)
             .combinedClickable(
                 onClick = onClick,
@@ -1180,25 +1298,58 @@ fun ThemedKeyButton(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+fun ThemedActionIconButton(
+    modifier: Modifier = Modifier,
+    accentColor: Color,
+    defaultBg: Color,
+    defaultText: Color,
+    keyShapeStyle: String = "rounded",
+    cornerRadiusDp: Int,
+    keyHeightDp: Int = 44,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = onClick,
+    content: @Composable () -> Unit
+) {
+    val shape = getKeyShape(keyShapeStyle, cornerRadiusDp)
+    Box(
+        modifier = modifier
+            .height(keyHeightDp.dp)
+            .clip(shape)
+            .background(defaultBg)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 fun ThemedActionKeyButton(
-    text: String,
+    text: String = "",
     modifier: Modifier = Modifier,
     isHighlighted: Boolean = false,
     accentColor: Color,
     defaultBg: Color,
     defaultText: Color,
+    keyShapeStyle: String = "rounded",
     cornerRadiusDp: Int,
     keyHeightDp: Int = 44,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = onClick
+    onLongClick: () -> Unit = onClick,
+    icon: (@Composable () -> Unit)? = null
 ) {
     val bg = if (isHighlighted) accentColor else defaultBg
     val fg = if (isHighlighted) Color.White else defaultText
+    val shape = getKeyShape(keyShapeStyle, cornerRadiusDp)
 
     Box(
         modifier = modifier
             .height(keyHeightDp.dp)
-            .clip(RoundedCornerShape(cornerRadiusDp.dp))
+            .clip(shape)
             .background(bg)
             .combinedClickable(
                 onClick = onClick,
@@ -1206,12 +1357,16 @@ fun ThemedActionKeyButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            color = fg,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+        if (icon != null) {
+            icon()
+        } else {
+            Text(
+                text = text,
+                color = fg,
+                fontSize = if (text.length > 2) 14.sp else 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 
@@ -1222,6 +1377,7 @@ fun RepeatingDeleteKeyButton(
     accentColor: Color,
     defaultBg: Color,
     defaultText: Color,
+    keyShapeStyle: String = "rounded",
     cornerRadiusDp: Int,
     keyHeightDp: Int = 44,
     onDelete: () -> Unit
@@ -1249,11 +1405,12 @@ fun RepeatingDeleteKeyButton(
 
     val bg = if (isPressed) accentColor.copy(alpha = 0.35f) else defaultBg
     val fg = if (isPressed) accentColor else defaultText
+    val shape = getKeyShape(keyShapeStyle, cornerRadiusDp)
 
     Box(
         modifier = modifier
             .height(keyHeightDp.dp)
-            .clip(RoundedCornerShape(cornerRadiusDp.dp))
+            .clip(shape)
             .background(bg)
             .pointerInput(Unit) {
                 awaitEachGesture {
@@ -1271,6 +1428,129 @@ fun RepeatingDeleteKeyButton(
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+fun getKeyShape(keyShapeStyle: String, cornerRadiusDp: Int): Shape {
+    return when (keyShapeStyle) {
+        "pill" -> CircleShape
+        "squircle" -> RoundedCornerShape(14.dp)
+        "sharp" -> RectangleShape
+        "cut_corner" -> CutCornerShape(cornerRadiusDp.coerceAtLeast(6).dp)
+        else -> RoundedCornerShape(cornerRadiusDp.dp)
+    }
+}
+
+@Composable
+fun KeyboardBackgroundPattern(pattern: String, baseColor: Color, modifier: Modifier = Modifier) {
+    Box(modifier = modifier) {
+        Box(modifier = Modifier.matchParentSize().background(baseColor))
+
+        when (pattern) {
+            "cyber_gradient" -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFF1E0533).copy(alpha = 0.8f),
+                                    Color(0xFF0F0B24).copy(alpha = 0.85f),
+                                    baseColor.copy(alpha = 0.9f)
+                                )
+                            )
+                        )
+                )
+            }
+            "sunset_gradient" -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF3B0764).copy(alpha = 0.8f),
+                                    Color(0xFF831843).copy(alpha = 0.8f),
+                                    baseColor.copy(alpha = 0.9f)
+                                )
+                            )
+                        )
+                )
+            }
+            "emerald_glow" -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF064E3B).copy(alpha = 0.85f),
+                                    baseColor.copy(alpha = 0.9f)
+                                )
+                            )
+                        )
+                )
+            }
+            "neon_cyber" -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    baseColor,
+                                    Color(0xFF0284C7).copy(alpha = 0.3f),
+                                    baseColor
+                                )
+                            )
+                        )
+                )
+            }
+            "carbon_grid" -> {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val step = 16.dp.toPx()
+                    var x = 0f
+                    while (x < size.width) {
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.08f),
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        x += step
+                    }
+                    var y = 0f
+                    while (y < size.height) {
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.08f),
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        y += step
+                    }
+                }
+            }
+            "dots_pattern" -> {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val spacing = 20.dp.toPx()
+                    val radius = 1.5.dp.toPx()
+                    var x = spacing / 2
+                    while (x < size.width) {
+                        var y = spacing / 2
+                        while (y < size.height) {
+                            drawCircle(
+                                color = Color.White.copy(alpha = 0.1f),
+                                radius = radius,
+                                center = Offset(x, y)
+                            )
+                            y += spacing
+                        }
+                        x += spacing
+                    }
+                }
+            }
+        }
     }
 }
 

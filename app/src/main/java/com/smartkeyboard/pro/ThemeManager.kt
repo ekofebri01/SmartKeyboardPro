@@ -18,6 +18,8 @@ data class KeyboardTheme(
     val keyColor: Color,
     val textColor: Color,
     val accentColor: Color,
+    val defaultPattern: String = "none",
+    val defaultShapeStyle: String = "rounded",
     val isCustomImage: Boolean = false
 )
 
@@ -36,7 +38,8 @@ data class ThemeConfig(
     val showKeySymbols: Boolean = true,
     val enableLongPressSymbols: Boolean = true,
     val keyHeightDp: Int = 44,
-    val keyShapeStyle: String = "rounded", // "rounded", "pill", "squircle", "sharp"
+    val keyShapeStyle: String = "rounded", // "rounded", "pill", "squircle", "cut_corner", "sharp"
+    val backgroundPattern: String = "none", // "none", "cyber_gradient", "sunset_gradient", "carbon_grid", "dots_pattern", "emerald_glow", "neon_cyber"
     val showSuggestionBar: Boolean = true,
     val autoSpaceAfterWord: Boolean = true
 )
@@ -58,6 +61,7 @@ object ThemeManager {
     private const val KEY_ENABLE_LONG_PRESS = "enable_long_press"
     private const val KEY_KEY_HEIGHT = "key_height"
     private const val KEY_KEY_SHAPE_STYLE = "key_shape_style"
+    private const val KEY_BG_PATTERN = "bg_pattern"
     private const val KEY_SHOW_SUGGESTION_BAR = "show_suggestion_bar"
     private const val KEY_AUTO_SPACE = "auto_space"
 
@@ -68,7 +72,9 @@ object ThemeManager {
             backgroundColor = Color(0xFF0F172A),
             keyColor = Color(0xFF1E293B),
             textColor = Color.White,
-            accentColor = Color(0xFF38BDF8)
+            accentColor = Color(0xFF38BDF8),
+            defaultPattern = "none",
+            defaultShapeStyle = "rounded"
         ),
         KeyboardTheme(
             id = "cyberpunk",
@@ -76,7 +82,9 @@ object ThemeManager {
             backgroundColor = Color(0xFF18092B),
             keyColor = Color(0xFF2D144E),
             textColor = Color(0xFFF472B6),
-            accentColor = Color(0xFF06B6D4)
+            accentColor = Color(0xFF06B6D4),
+            defaultPattern = "cyber_gradient",
+            defaultShapeStyle = "cut_corner"
         ),
         KeyboardTheme(
             id = "emerald",
@@ -84,7 +92,9 @@ object ThemeManager {
             backgroundColor = Color(0xFF062319),
             keyColor = Color(0xFF0D3E2F),
             textColor = Color(0xFFA7F3D0),
-            accentColor = Color(0xFF34D399)
+            accentColor = Color(0xFF34D399),
+            defaultPattern = "emerald_glow",
+            defaultShapeStyle = "squircle"
         ),
         KeyboardTheme(
             id = "sunset",
@@ -92,7 +102,9 @@ object ThemeManager {
             backgroundColor = Color(0xFF2B0F1A),
             keyColor = Color(0xFF481B2D),
             textColor = Color(0xFFFDE047),
-            accentColor = Color(0xFFF97316)
+            accentColor = Color(0xFFF97316),
+            defaultPattern = "sunset_gradient",
+            defaultShapeStyle = "pill"
         ),
         KeyboardTheme(
             id = "nord",
@@ -100,7 +112,9 @@ object ThemeManager {
             backgroundColor = Color(0xFF2E3440),
             keyColor = Color(0xFF3B4252),
             textColor = Color(0xFFECEFF4),
-            accentColor = Color(0xFF88C0D0)
+            accentColor = Color(0xFF88C0D0),
+            defaultPattern = "carbon_grid",
+            defaultShapeStyle = "rounded"
         ),
         KeyboardTheme(
             id = "light",
@@ -108,7 +122,39 @@ object ThemeManager {
             backgroundColor = Color(0xFFF8FAFC),
             keyColor = Color(0xFFE2E8F0),
             textColor = Color(0xFF0F172A),
-            accentColor = Color(0xFF0284C7)
+            accentColor = Color(0xFF0284C7),
+            defaultPattern = "none",
+            defaultShapeStyle = "rounded"
+        ),
+        KeyboardTheme(
+            id = "high_contrast",
+            name = "High Contrast",
+            backgroundColor = Color(0xFF000000),
+            keyColor = Color(0xFF1C1917),
+            textColor = Color(0xFFFACC15),
+            accentColor = Color(0xFFFACC15),
+            defaultPattern = "none",
+            defaultShapeStyle = "sharp"
+        ),
+        KeyboardTheme(
+            id = "pastel_lavender",
+            name = "Pastel Lavender",
+            backgroundColor = Color(0xFF2E2B40),
+            keyColor = Color(0xFF433D60),
+            textColor = Color(0xFFF4E8FF),
+            accentColor = Color(0xFFC084FC),
+            defaultPattern = "dots_pattern",
+            defaultShapeStyle = "squircle"
+        ),
+        KeyboardTheme(
+            id = "matrix_green",
+            name = "Matrix Cyber",
+            backgroundColor = Color(0xFF051109),
+            keyColor = Color(0xFF0C2B16),
+            textColor = Color(0xFF4ADE80),
+            accentColor = Color(0xFF22C55E),
+            defaultPattern = "neon_cyber",
+            defaultShapeStyle = "cut_corner"
         ),
         KeyboardTheme(
             id = "amoled",
@@ -116,7 +162,9 @@ object ThemeManager {
             backgroundColor = Color(0xFF000000),
             keyColor = Color(0xFF18181B),
             textColor = Color.White,
-            accentColor = Color(0xFFA1A1AA)
+            accentColor = Color(0xFFA1A1AA),
+            defaultPattern = "none",
+            defaultShapeStyle = "rounded"
         )
     )
 
@@ -152,6 +200,9 @@ object ThemeManager {
         val customImagePath = prefs.getString(KEY_CUSTOM_IMAGE_PATH, null)
         val validImagePath = if (customImagePath != null && File(customImagePath).exists()) customImagePath else null
 
+        val shapeStyle = prefs.getString(KEY_KEY_SHAPE_STYLE, preset?.defaultShapeStyle ?: "rounded") ?: "rounded"
+        val bgPattern = prefs.getString(KEY_BG_PATTERN, preset?.defaultPattern ?: "none") ?: "none"
+
         return ThemeConfig(
             themeId = themeId,
             backgroundColor = bgColor,
@@ -169,7 +220,8 @@ object ThemeManager {
             showSuggestionBar = prefs.getBoolean(KEY_SHOW_SUGGESTION_BAR, true),
             autoSpaceAfterWord = prefs.getBoolean(KEY_AUTO_SPACE, true),
             keyHeightDp = prefs.getInt(KEY_KEY_HEIGHT, 44),
-            keyShapeStyle = prefs.getString(KEY_KEY_SHAPE_STYLE, "rounded") ?: "rounded"
+            keyShapeStyle = shapeStyle,
+            backgroundPattern = bgPattern
         )
     }
 
@@ -193,6 +245,7 @@ object ThemeManager {
             putBoolean(KEY_AUTO_SPACE, config.autoSpaceAfterWord)
             putInt(KEY_KEY_HEIGHT, config.keyHeightDp)
             putString(KEY_KEY_SHAPE_STYLE, config.keyShapeStyle)
+            putString(KEY_BG_PATTERN, config.backgroundPattern)
             apply()
         }
     }

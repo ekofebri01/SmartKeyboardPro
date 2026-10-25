@@ -1,0 +1,6 @@
+{
+  "summary":  "Rencana solusi komprehensif untuk kendala instalasi/update (tidak bisa timpa instalan) saat berganti laptop atau mengunduh build baru di Google AI Studio. Rencana ini mengidentifikasi akar penyebab (mekanisme versi Android dan tombol emulator AI Studio), memperbarui konfigurasi penandatanganan APK (v1 & v2 signing scheme), menaikkan versionCode ke 143 (v1.4.3), dan memastikan alur rilis GitHub & in-app update berjalan mulus tanpa perlu uninstall.",
+  "updatedAt":  "2026-10-25T04:46:52.202137587Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

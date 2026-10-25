@@ -1,0 +1,8 @@
+Release v1.4.2:
+- Perbaikan tombol kontrol bawah: Menghilangkan tombol ganda [ABC] saat berada dalam mode Emoji.
+- Navigasi mode keyboard mulus: Beralih langsung antara huruf (ABC), angka/simbol (?123), dan emoji dengan 1 ketukan.
+- Koleksi emoji super lengkap: Drawer emoji scrollable baru berbasis LazyVerticalGrid dengan 230+ emoji populer dalam 5 kategori (Wajah, Tangan/Gestur, Hati, Makanan/Seru, dan Hewan).
+- Tombol Backspace langsung di baris emoji untuk koreksi cepat.
+- Ikon tombol Enter diperbesar dan dipertajam menggunakan vektor panah return resolusi tinggi 24dp bergaris tebal 2.8dp.
+- Optimalisasi akses tombol menu pengaturan pada berbagai tema tekstur latar belakang keyboard.
+- Kompatibilitas tanda tangan rilis konsisten menggunakan my-upload-key.jks.

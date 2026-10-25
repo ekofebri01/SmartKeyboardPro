@@ -17,7 +17,7 @@ import java.util.Locale
 data class CloudBackupItem(
     val backupId: String = "",
     val deviceName: String = "",
-    val appVersion: String = "1.4.0",
+    val appVersion: String = BuildConfig.VERSION_NAME,
     val createdAtFormatted: String = "",
     val timestamp: Long = 0L,
     val themeConfigJson: String = "",
@@ -158,7 +158,7 @@ class CloudBackupRepository(
             val backupMap = mapOf(
                 "backupId" to backupId,
                 "deviceName" to (Build.MODEL ?: "Android Device"),
-                "appVersion" to "1.4.0",
+                "appVersion" to BuildConfig.VERSION_NAME,
                 "createdAtFormatted" to dateString,
                 "timestamp" to now.time,
                 "serverCreatedAt" to FieldValue.serverTimestamp(),

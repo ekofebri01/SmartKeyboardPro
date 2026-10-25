@@ -147,8 +147,40 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
             backgroundColor = theme.backgroundColor,
             keyColor = theme.keyColor,
             textColor = theme.textColor,
-            accentColor = theme.accentColor
+            accentColor = theme.accentColor,
+            backgroundPattern = theme.defaultPattern,
+            keyShapeStyle = theme.defaultShapeStyle,
+            cornerRadiusDp = when (theme.defaultShapeStyle) {
+                "pill" -> 22
+                "squircle" -> 14
+                "sharp" -> 2
+                "cut_corner" -> 8
+                else -> 8
+            }
         )
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun updateCustomColor(
+        bgColor: androidx.compose.ui.graphics.Color? = null,
+        keyColor: androidx.compose.ui.graphics.Color? = null,
+        textColor: androidx.compose.ui.graphics.Color? = null,
+        accentColor: androidx.compose.ui.graphics.Color? = null
+    ) {
+        val newConfig = themeConfig.copy(
+            themeId = "custom",
+            backgroundColor = bgColor ?: themeConfig.backgroundColor,
+            keyColor = keyColor ?: themeConfig.keyColor,
+            textColor = textColor ?: themeConfig.textColor,
+            accentColor = accentColor ?: themeConfig.accentColor
+        )
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun updateBackgroundPattern(pattern: String) {
+        val newConfig = themeConfig.copy(backgroundPattern = pattern)
         themeConfig = newConfig
         ThemeManager.saveConfig(context, newConfig)
     }
@@ -247,7 +279,8 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         val radius = when (style) {
             "pill" -> 22
             "squircle" -> 14
-            "sharp" -> 2
+            "sharp" -> 0
+            "cut_corner" -> 10
             else -> 8
         }
         val newConfig = themeConfig.copy(keyShapeStyle = style, cornerRadiusDp = radius)

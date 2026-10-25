@@ -52,8 +52,8 @@ object UpdateChecker {
     ): UpdateResult = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
-            val endpoint = "https://api.github.com/repos/$repoOwner/$repoName/releases/latest"
-            val url = URL(endpoint)
+            var endpoint = "https://api.github.com/repos/$repoOwner/$repoName/releases/latest"
+            var url = URL(endpoint)
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 setRequestProperty("Accept", "application/vnd.github.v3+json")
@@ -62,57 +62,87 @@ object UpdateChecker {
                 readTimeout = 8000
             }
 
-            val responseCode = connection.responseCode
+            var responseCode = connection.responseCode
+            var responseText = ""
+
             if (responseCode == 200) {
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
-                val responseText = reader.use { it.readText() }
-                val json = JSONObject(responseText)
+                responseText = reader.use { it.readText() }
+                connection.disconnect()
+            } else {
+                connection.disconnect()
+                // Fallback to /releases endpoint if /releases/latest returns 403, 404, etc.
+                endpoint = "https://api.github.com/repos/$repoOwner/$repoName/releases"
+                url = URL(endpoint)
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    setRequestProperty("Accept", "application/vnd.github.v3+json")
+                    setRequestProperty("User-Agent", "SmartKeyboardPro-Android")
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                }
+                responseCode = connection.responseCode
+                if (responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                    val jsonArrayStr = reader.use { it.readText() }
+                    val jsonArray = org.json.JSONArray(jsonArrayStr)
+                    if (jsonArray.length() > 0) {
+                        responseText = jsonArray.getJSONObject(0).toString()
+                        responseCode = 200
+                    } else {
+                        return@withContext UpdateResult.Error("No releases found on GitHub repository ($repoOwner/$repoName).")
+                    }
+                } else if (responseCode == 403) {
+                    return@withContext UpdateResult.Error("GitHub API rate limit or access forbidden (403). Please verify repository visibility.")
+                } else if (responseCode == 404) {
+                    return@withContext UpdateResult.Error("Repository or releases not found ($repoOwner/$repoName).")
+                } else {
+                    return@withContext UpdateResult.Error("GitHub API returned error code $responseCode.")
+                }
+            }
 
-                val tagName = json.optString("tag_name", "")
-                val cleanLatest = tagName.removePrefix("v").removePrefix("V").trim()
-                val cleanCurrent = currentVersion.removePrefix("v").removePrefix("V").trim()
+            val json = JSONObject(responseText)
 
-                val title = json.optString("name", tagName)
-                val body = json.optString("body", "No release notes provided.")
-                val htmlUrl = json.optString("html_url", "https://github.com/$repoOwner/$repoName/releases")
-                val publishedAt = json.optString("published_at", "")
+            val tagName = json.optString("tag_name", "")
+            val cleanLatest = tagName.removePrefix("v").removePrefix("V").trim()
+            val cleanCurrent = currentVersion.removePrefix("v").removePrefix("V").trim()
 
-                // Find direct APK download url from assets if available
-                var apkDownloadUrl = htmlUrl
-                val assets = json.optJSONArray("assets")
-                if (assets != null) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(i)
-                        val name = asset.optString("name", "")
-                        if (name.endsWith(".apk", ignoreCase = true)) {
-                            apkDownloadUrl = asset.optString("browser_download_url", htmlUrl)
-                            break
-                        }
+            val title = json.optString("name", tagName)
+            val body = json.optString("body", "No release notes provided.")
+            val htmlUrl = json.optString("html_url", "https://github.com/$repoOwner/$repoName/releases")
+            val publishedAt = json.optString("published_at", "")
+
+            // Find direct APK download url from assets if available
+            var apkDownloadUrl = htmlUrl
+            val assets = json.optJSONArray("assets")
+            if (assets != null) {
+                for (i in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(i)
+                    val name = asset.optString("name", "")
+                    if (name.endsWith(".apk", ignoreCase = true)) {
+                        apkDownloadUrl = asset.optString("browser_download_url", htmlUrl)
+                        break
                     }
                 }
+            }
 
-                val isNewer = isVersionNewer(cleanLatest, cleanCurrent)
+            val isNewer = isVersionNewer(cleanLatest, cleanCurrent)
 
-                val info = ReleaseInfo(
-                    tagName = tagName,
-                    versionName = cleanLatest,
-                    title = title,
-                    releaseNotes = body,
-                    downloadUrl = apkDownloadUrl,
-                    htmlUrl = htmlUrl,
-                    isNewer = isNewer,
-                    publishedAt = publishedAt
-                )
+            val info = ReleaseInfo(
+                tagName = tagName,
+                versionName = cleanLatest,
+                title = title,
+                releaseNotes = body,
+                downloadUrl = apkDownloadUrl,
+                htmlUrl = htmlUrl,
+                isNewer = isNewer,
+                publishedAt = publishedAt
+            )
 
-                if (isNewer) {
-                    UpdateResult.Success(info)
-                } else {
-                    UpdateResult.UpToDate(currentVersion)
-                }
-            } else if (responseCode == 404) {
-                UpdateResult.Error("No releases found on GitHub repository ($repoOwner/$repoName).")
+            if (isNewer) {
+                UpdateResult.Success(info)
             } else {
-                UpdateResult.Error("GitHub API returned error code $responseCode.")
+                UpdateResult.UpToDate(currentVersion)
             }
         } catch (e: Exception) {
             UpdateResult.Error(e.message ?: "Failed to connect to GitHub.")
