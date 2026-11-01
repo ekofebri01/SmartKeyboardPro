@@ -97,7 +97,7 @@ object PersonalDictionary {
     fun learnWord(context: Context, rawWord: String) {
         val cleanRaw = rawWord.trim().lowercase(Locale.ROOT)
         val clean = cleanRaw.filter { it.isLetter() }
-        if (clean.length < 2) return
+        if (clean.length < 3) return
 
         load(context)
 

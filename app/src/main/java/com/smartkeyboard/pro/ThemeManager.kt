@@ -41,7 +41,10 @@ data class ThemeConfig(
     val keyShapeStyle: String = "rounded", // "rounded", "pill", "squircle", "cut_corner", "sharp"
     val backgroundPattern: String = "none", // "none", "cyber_gradient", "sunset_gradient", "carbon_grid", "dots_pattern", "emerald_glow", "neon_cyber"
     val showSuggestionBar: Boolean = true,
-    val autoSpaceAfterWord: Boolean = true
+    val autoSpaceAfterWord: Boolean = true,
+    val keyFontSizeSp: Int = 17,
+    val splitKeyboardLandscape: Boolean = true,
+    val soundProfile: String = "laptop" // "laptop", "mechanical", "typewriter", "bubble", "wood", "system"
 )
 
 object ThemeManager {
@@ -64,6 +67,9 @@ object ThemeManager {
     private const val KEY_BG_PATTERN = "bg_pattern"
     private const val KEY_SHOW_SUGGESTION_BAR = "show_suggestion_bar"
     private const val KEY_AUTO_SPACE = "auto_space"
+    private const val KEY_FONT_SIZE = "key_font_size"
+    private const val KEY_SPLIT_LANDSCAPE = "split_keyboard_landscape"
+    private const val KEY_SOUND_PROFILE = "sound_profile"
 
     val predefinedThemes = listOf(
         KeyboardTheme(
@@ -221,7 +227,10 @@ object ThemeManager {
             autoSpaceAfterWord = prefs.getBoolean(KEY_AUTO_SPACE, true),
             keyHeightDp = prefs.getInt(KEY_KEY_HEIGHT, 44),
             keyShapeStyle = shapeStyle,
-            backgroundPattern = bgPattern
+            backgroundPattern = bgPattern,
+            keyFontSizeSp = prefs.getInt(KEY_FONT_SIZE, 17),
+            splitKeyboardLandscape = prefs.getBoolean(KEY_SPLIT_LANDSCAPE, true),
+            soundProfile = prefs.getString(KEY_SOUND_PROFILE, "laptop") ?: "laptop"
         )
     }
 
@@ -246,6 +255,9 @@ object ThemeManager {
             putInt(KEY_KEY_HEIGHT, config.keyHeightDp)
             putString(KEY_KEY_SHAPE_STYLE, config.keyShapeStyle)
             putString(KEY_BG_PATTERN, config.backgroundPattern)
+            putInt(KEY_FONT_SIZE, config.keyFontSizeSp)
+            putBoolean(KEY_SPLIT_LANDSCAPE, config.splitKeyboardLandscape)
+            putString(KEY_SOUND_PROFILE, config.soundProfile)
             apply()
         }
     }

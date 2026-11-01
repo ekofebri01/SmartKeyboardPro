@@ -23,6 +23,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -918,6 +919,44 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                             )
                         )
                     }
+
+                    HorizontalDivider(color = Color(0xFF334155))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Split Keyboard in Landscape", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("Split keyboard into left and right halves in landscape mode", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Switch(
+                            checked = config.splitKeyboardLandscape,
+                            onCheckedChange = { viewModel.toggleSplitKeyboardLandscape(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF0284C7)
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Key Font Size: ${config.keyFontSizeSp} sp",
+                        color = Color.White,
+                        fontSize = 13.sp
+                    )
+                    Slider(
+                        value = config.keyFontSizeSp.toFloat(),
+                        onValueChange = { viewModel.updateKeyFontSize(it.toInt()) },
+                        valueRange = 12f..24f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF38BDF8),
+                            activeTrackColor = Color(0xFF38BDF8)
+                        )
+                    )
                 }
             }
 
@@ -952,6 +991,114 @@ fun ThemeStudioTab(viewModel: KeyboardViewModel) {
                             checkedTrackColor = Color(0xFF0284C7)
                         )
                     )
+                }
+
+                if (config.soundEnabled) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Pilih Suara Ketikan:",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = Color(0xFF38BDF8)
+                    )
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        KeyboardSoundManager.availableProfiles.forEach { profile ->
+                            val isSelected = config.soundProfile == profile.id
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) Color(0xFF0284C7).copy(alpha = 0.22f) else Color(0xFF0F172A).copy(alpha = 0.5f),
+                                border = BorderStroke(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.08f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.setSoundProfile(profile.id)
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(text = profile.icon, fontSize = 20.sp)
+                                        Column {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = profile.name,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                                    color = if (isSelected) Color(0xFF38BDF8) else Color.White
+                                                )
+                                                if (profile.id == "laptop") {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = Color(0xFF0284C7).copy(alpha = 0.35f)
+                                                    ) {
+                                                        Text(
+                                                            text = "Rekomendasi",
+                                                            fontSize = 9.sp,
+                                                            color = Color(0xFF38BDF8),
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Text(
+                                                text = profile.description,
+                                                fontSize = 11.sp,
+                                                color = Color.White.copy(alpha = 0.65f),
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        FilledTonalIconButton(
+                                            onClick = {
+                                                viewModel.previewSound(profile.id, isDelete = false)
+                                            },
+                                            modifier = Modifier.size(32.dp),
+                                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                                containerColor = if (isSelected) Color(0xFF0284C7) else Color.White.copy(alpha = 0.12f),
+                                                contentColor = Color.White
+                                            )
+                                        ) {
+                                            Text("🔊", fontSize = 13.sp)
+                                        }
+                                        RadioButton(
+                                            selected = isSelected,
+                                            onClick = { viewModel.setSoundProfile(profile.id) },
+                                            colors = RadioButtonDefaults.colors(
+                                                selectedColor = Color(0xFF38BDF8),
+                                                unselectedColor = Color.White.copy(alpha = 0.4f)
+                                            ),
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
 
                 Row(

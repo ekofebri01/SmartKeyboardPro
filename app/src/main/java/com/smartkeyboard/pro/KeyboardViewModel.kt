@@ -239,6 +239,19 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         ThemeManager.saveConfig(context, newConfig)
     }
 
+    fun setSoundProfile(profile: String) {
+        val newConfig = themeConfig.copy(soundProfile = profile)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+        previewSound(profile)
+    }
+
+    fun previewSound(profile: String, isDelete: Boolean = false) {
+        KeyboardSoundManager.init(context)
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+        KeyboardSoundManager.playKeySound(profile, isDelete = isDelete, audioManager = audioManager)
+    }
+
     fun toggleVibration(enabled: Boolean) {
         val newConfig = themeConfig.copy(vibrationEnabled = enabled)
         themeConfig = newConfig
@@ -290,6 +303,18 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
             else -> 8
         }
         val newConfig = themeConfig.copy(keyShapeStyle = style, cornerRadiusDp = radius)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun updateKeyFontSize(fontSize: Int) {
+        val newConfig = themeConfig.copy(keyFontSizeSp = fontSize)
+        themeConfig = newConfig
+        ThemeManager.saveConfig(context, newConfig)
+    }
+
+    fun toggleSplitKeyboardLandscape(enabled: Boolean) {
+        val newConfig = themeConfig.copy(splitKeyboardLandscape = enabled)
         themeConfig = newConfig
         ThemeManager.saveConfig(context, newConfig)
     }

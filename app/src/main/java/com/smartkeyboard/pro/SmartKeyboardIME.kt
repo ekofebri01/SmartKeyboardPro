@@ -5,7 +5,10 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.widget.Toast
 import android.text.InputType
 import android.view.HapticFeedbackConstants
@@ -30,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyRow
@@ -67,6 +71,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
@@ -86,7 +91,10 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 enum class KeyboardMode {
     ALPHA,
@@ -114,6 +122,9 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
     private var customBgBitmap by mutableStateOf<ImageBitmap?>(null)
 
     private var composeView: ComposeView? = null
+    private var cachedVibrator: Vibrator? = null
+    private var cachedAudioManager: AudioManager? = null
+    private var isFastRepeatingDelete = false
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         loadCurrentTheme()
@@ -121,6 +132,8 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
 
     override fun onCreate() {
         super.onCreate()
+        cachedVibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        cachedAudioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         try {
             if (!savedStateRegistry.isRestored) {
                 savedStateRegistryController.performRestore(null)
@@ -135,6 +148,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
 
         loadCurrentTheme()
         PersonalDictionary.load(this)
+        KeyboardSoundManager.init(this)
     }
 
     private fun loadCurrentTheme() {
@@ -175,6 +189,35 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
 
     private var initialMode by mutableStateOf(KeyboardMode.ALPHA)
     private var liveAutoTextEntries by mutableStateOf<List<AutoTextEntry>>(emptyList())
+    private var composingWord by mutableStateOf("")
+
+    private fun syncComposingWord() {
+        val ic = currentInputConnection
+        if (ic == null) {
+            if (composingWord.isNotEmpty()) composingWord = ""
+            return
+        }
+        try {
+            val textBefore = ic.getTextBeforeCursor(40, 0)?.toString() ?: ""
+            if (textBefore.isEmpty()) {
+                if (composingWord.isNotEmpty()) composingWord = ""
+                return
+            }
+            val lastChar = textBefore.last()
+            // If the character directly before cursor is whitespace or punctuation, no active composing word
+            if (lastChar.isWhitespace() || (!lastChar.isLetterOrDigit() && lastChar != '_' && lastChar != '-')) {
+                if (composingWord.isNotEmpty()) composingWord = ""
+                return
+            }
+            val match = Regex("""([a-zA-Z0-9_\-]+)$""").find(textBefore)
+            val newWord = match?.value ?: ""
+            if (composingWord != newWord) {
+                composingWord = newWord
+            }
+        } catch (e: Exception) {
+            if (composingWord.isNotEmpty()) composingWord = ""
+        }
+    }
 
     private fun reloadAutoTextEntries() {
         val list = mutableListOf<AutoTextEntry>()
@@ -212,6 +255,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         reloadAutoTextEntries()
+        syncComposingWord()
         if (info != null) {
             val classType = info.inputType and InputType.TYPE_MASK_CLASS
             val variation = info.inputType and InputType.TYPE_MASK_VARIATION
@@ -225,61 +269,116 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
         }
     }
 
-    private fun handleDelete() {
-        playFeedback()
+    override fun onUpdateSelection(
+        oldSelStart: Int,
+        oldSelEnd: Int,
+        newSelStart: Int,
+        newSelEnd: Int,
+        candidatesStart: Int,
+        candidatesEnd: Int
+    ) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        if (isFastRepeatingDelete) return
+        syncComposingWord()
+    }
+
+    private fun handleDelete(isRepeat: Boolean = false) {
         val ic = currentInputConnection ?: return
 
-        // 1. If text is selected (highlighted text, sentence selection, or Select All), commit empty string to delete it
-        val selectedText = try {
-            ic.getSelectedText(0)
-        } catch (e: Exception) {
-            null
-        }
+        if (!isRepeat) {
+            playDeleteFeedback()
 
-        if (!selectedText.isNullOrEmpty()) {
-            ic.commitText("", 1)
-            return
-        }
+            // 1. If text is selected (highlighted text, sentence selection, or Select All), commit empty string to delete it
+            val selectedText = try {
+                ic.getSelectedText(0)
+            } catch (e: Exception) {
+                null
+            }
 
-        // 2. Secondary check for selection using ExtractedText if editor didn't return text in getSelectedText
-        val extracted = try {
-            ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
-        } catch (e: Exception) {
-            null
-        }
+            if (!selectedText.isNullOrEmpty()) {
+                ic.commitText("", 1)
+                syncComposingWord()
+                return
+            }
 
-        if (extracted != null && extracted.selectionStart != extracted.selectionEnd) {
-            ic.commitText("", 1)
-            return
-        }
+            // 2. Secondary check for selection using ExtractedText if editor didn't return text in getSelectedText
+            val extracted = try {
+                ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)
+            } catch (e: Exception) {
+                null
+            }
 
-        // 3. Send standard KEYCODE_DEL key event. In Android framework TextView/EditText, KEYCODE_DEL natively
-        // handles deleting selections and standard single character deletion.
-        val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
-        val up = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)
-        val sent = try {
-            ic.sendKeyEvent(down) && ic.sendKeyEvent(up)
-        } catch (e: Exception) {
-            false
-        }
+            if (extracted != null && extracted.selectionStart != extracted.selectionEnd) {
+                ic.commitText("", 1)
+                syncComposingWord()
+                return
+            }
 
-        // 4. Fallback if the target editor didn't process the key event directly
-        if (!sent) {
+            // 3. Direct IME deletion of 1 code point or character before cursor
+            var deleted = false
             try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                    ic.deleteSurroundingTextInCodePoints(1, 0)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    deleted = ic.deleteSurroundingTextInCodePoints(1, 0)
                 } else {
-                    ic.deleteSurroundingText(1, 0)
+                    deleted = ic.deleteSurroundingText(1, 0)
                 }
             } catch (e: Exception) {
-                ic.deleteSurroundingText(1, 0)
+                deleted = false
+            }
+
+            // 4. Fallback if deleteSurroundingText wasn't processed directly
+            if (!deleted) {
+                val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
+                val up = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)
+                try {
+                    ic.sendKeyEvent(down)
+                    ic.sendKeyEvent(up)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            syncComposingWord()
+        } else {
+            // Fast repeat delete: zero audio lag, zero heavy selection IPC calls, smooth cadence
+            isFastRepeatingDelete = true
+            if (currentConfig.vibrationEnabled) {
+                composeView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+            var deleted = false
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    deleted = ic.deleteSurroundingTextInCodePoints(1, 0)
+                } else {
+                    deleted = ic.deleteSurroundingText(1, 0)
+                }
+            } catch (e: Exception) {
+                deleted = false
+            }
+            if (!deleted) {
+                val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
+                val up = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)
+                try {
+                    ic.sendKeyEvent(down)
+                    ic.sendKeyEvent(up)
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+            if (composingWord.isNotEmpty()) {
+                composingWord = composingWord.dropLast(1)
             }
         }
+    }
+
+    private fun handleDeleteComplete() {
+        isFastRepeatingDelete = false
+        syncComposingWord()
     }
 
     override fun onCreateInputView(): View {
         setupDecorViewOwners()
         reloadAutoTextEntries()
+        syncComposingWord()
 
         val view = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnLifecycleDestroyed(this@SmartKeyboardIME))
@@ -293,12 +392,21 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                     bgBitmap = customBgBitmap,
                     initialMode = initialMode,
                     customAutoTextEntries = liveAutoTextEntries,
+                    composingWord = composingWord,
                     onKeyPress = { char ->
                         playFeedback(this)
                         currentInputConnection?.commitText(char, 1)
+                        if (char.length == 1 && (char[0].isLetterOrDigit() || char[0] == '_' || char[0] == '-')) {
+                            composingWord += char
+                        } else {
+                            composingWord = ""
+                        }
                     },
-                    onBackspace = {
-                        handleDelete()
+                    onBackspace = { isRepeat ->
+                        handleDelete(isRepeat)
+                    },
+                    onBackspaceComplete = {
+                        handleDeleteComplete()
                     },
                     onSpace = {
                         playFeedback(this)
@@ -322,13 +430,21 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                             }
                         }
                         if (!autoTextExpanded) {
+                            if (composingWord.length >= 3 && composingWord.all { it.isLetter() }) {
+                                PersonalDictionary.learnWord(this@SmartKeyboardIME, composingWord)
+                            }
                             currentInputConnection?.commitText(" ", 1)
                         }
+                        syncComposingWord()
                     },
                     onEnter = {
                         playFeedback(this)
+                        if (composingWord.length >= 3 && composingWord.all { it.isLetter() }) {
+                            PersonalDictionary.learnWord(this@SmartKeyboardIME, composingWord)
+                        }
                         currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
                         currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                        syncComposingWord()
                     },
                     onSuggestionSelected = { word, charsToDelete ->
                         playFeedback(this)
@@ -343,6 +459,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                             word
                         }
                         currentInputConnection?.commitText(textToCommit, 1)
+                        syncComposingWord()
                     },
                     onOpenSettings = {
                         playFeedback(this)
@@ -365,30 +482,44 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
     private fun playFeedback(view: View? = composeView) {
         if (currentConfig.vibrationEnabled) {
             try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
-                    vibrator?.vibrate(android.os.VibrationEffect.createOneShot(25L, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    cachedVibrator?.vibrate(VibrationEffect.createOneShot(15L, VibrationEffect.DEFAULT_AMPLITUDE))
                 } else {
                     @Suppress("DEPRECATION")
-                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
-                    vibrator?.vibrate(25L)
+                    cachedVibrator?.vibrate(15L)
                 }
             } catch (e: Exception) {
                 view?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
         }
         if (currentConfig.soundEnabled) {
+            KeyboardSoundManager.playKeySound(
+                profile = currentConfig.soundProfile,
+                isDelete = false,
+                audioManager = cachedAudioManager
+            )
+        }
+    }
+
+    private fun playDeleteFeedback(view: View? = composeView) {
+        if (currentConfig.vibrationEnabled) {
             try {
-                val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 0.8f)
-            } catch (e: Exception) {
-                try {
-                    val toneGen = android.media.ToneGenerator(android.media.AudioManager.STREAM_SYSTEM, 90)
-                    toneGen.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 35)
-                } catch (e2: Exception) {
-                    e2.printStackTrace()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    cachedVibrator?.vibrate(VibrationEffect.createOneShot(18L, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    cachedVibrator?.vibrate(18L)
                 }
+            } catch (e: Exception) {
+                view?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
+        }
+        if (currentConfig.soundEnabled) {
+            KeyboardSoundManager.playKeySound(
+                profile = currentConfig.soundProfile,
+                isDelete = true,
+                audioManager = cachedAudioManager
+            )
         }
     }
 
@@ -419,8 +550,10 @@ fun SmartKeyboardView(
     bgBitmap: ImageBitmap?,
     initialMode: KeyboardMode = KeyboardMode.ALPHA,
     customAutoTextEntries: List<AutoTextEntry>? = null,
+    composingWord: String = "",
     onKeyPress: (String) -> Unit,
-    onBackspace: () -> Unit,
+    onBackspace: (Boolean) -> Unit,
+    onBackspaceComplete: () -> Unit = {},
     onSpace: () -> Unit,
     onEnter: () -> Unit,
     onSuggestionSelected: (String, Int) -> Unit = { _, _ -> },
@@ -433,15 +566,11 @@ fun SmartKeyboardView(
         mode = initialMode
     }
     var isShifted by remember { mutableStateOf(false) }
-    var currentComposingWord by remember { mutableStateOf("") }
+    var dictRevision by remember { mutableStateOf(0) }
 
-    val suggestions = remember(currentComposingWord, config.showSuggestionBar) {
-        if (config.showSuggestionBar && currentComposingWord.isNotEmpty()) {
-            PersonalDictionary.getSuggestions(context, currentComposingWord, limit = 4)
-        } else {
-            emptyList()
-        }
-    }
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isSplit = isLandscape && config.splitKeyboardLandscape
 
     val fallbackAutoTextEntries = remember(context) {
         val list = mutableListOf<AutoTextEntry>()
@@ -478,24 +607,47 @@ fun SmartKeyboardView(
 
     val autoTextEntries = customAutoTextEntries ?: fallbackAutoTextEntries
 
-    val matchingAutoTexts = remember(currentComposingWord, autoTextEntries) {
-        if (currentComposingWord.isNotEmpty()) {
-            val query = currentComposingWord.trim().lowercase()
-            autoTextEntries.filter { entry ->
-                entry.shortcut.lowercase().startsWith(query) ||
-                entry.shortcut.lowercase().contains(query) ||
-                entry.fullText.lowercase().contains(query)
-            }.sortedBy { entry ->
-                when {
-                    entry.shortcut.lowercase() == query -> 0
-                    entry.shortcut.lowercase().startsWith(query) -> 1
-                    entry.shortcut.lowercase().contains(query) -> 2
-                    else -> 3
-                }
-            }
-        } else {
-            emptyList()
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    var matchingAutoTexts by remember { mutableStateOf<List<AutoTextEntry>>(emptyList()) }
+
+    LaunchedEffect(composingWord, config.showSuggestionBar, dictRevision, autoTextEntries) {
+        if (!config.showSuggestionBar || composingWord.isEmpty()) {
+            suggestions = emptyList()
+            matchingAutoTexts = emptyList()
+            return@LaunchedEffect
         }
+
+        // Debounce: If typing fast, wait 35ms so keystrokes remain instantaneous with zero frame-drop
+        if (composingWord.length > 1) {
+            delay(35L)
+        }
+
+        val autoMatches = withContext(Dispatchers.Default) {
+            val query = composingWord.trim().lowercase()
+            if (query.isNotEmpty() && autoTextEntries.isNotEmpty()) {
+                autoTextEntries.filter { entry ->
+                    entry.shortcut.lowercase().startsWith(query) ||
+                    entry.shortcut.lowercase().contains(query) ||
+                    entry.fullText.lowercase().contains(query)
+                }.sortedBy { entry ->
+                    when {
+                        entry.shortcut.lowercase() == query -> 0
+                        entry.shortcut.lowercase().startsWith(query) -> 1
+                        entry.shortcut.lowercase().contains(query) -> 2
+                        else -> 3
+                    }
+                }
+            } else {
+                emptyList()
+            }
+        }
+
+        val dictMatches = withContext(Dispatchers.Default) {
+            PersonalDictionary.getSuggestions(context, composingWord, limit = 4)
+        }
+
+        matchingAutoTexts = autoMatches
+        suggestions = dictMatches
     }
 
     val numberRow = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
@@ -646,13 +798,12 @@ fun SmartKeyboardView(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     items(matchingAutoTexts, key = { it.id }) { entry ->
-                                        val charsToDelete = currentComposingWord.length
+                                        val charsToDelete = composingWord.length
                                         Row(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
                                                 .background(config.accentColor.copy(alpha = 0.25f))
                                                 .clickable {
-                                                    currentComposingWord = ""
                                                     onSuggestionSelected(entry.fullText, charsToDelete)
                                                 }
                                                 .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -684,9 +835,8 @@ fun SmartKeyboardView(
                                                 .clip(RoundedCornerShape(6.dp))
                                                 .background(config.keyColor.copy(alpha = 0.5f))
                                                 .clickable {
-                                                    val charsToDelete = currentComposingWord.length
+                                                    val charsToDelete = composingWord.length
                                                     PersonalDictionary.learnWord(context, suggestion)
-                                                    currentComposingWord = ""
                                                     onSuggestionSelected(suggestion, charsToDelete)
                                                 }
                                                 .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -718,15 +868,14 @@ fun SmartKeyboardView(
                                                 .background(if (isPrimary) config.accentColor.copy(alpha = 0.22f) else Color.Transparent)
                                                 .combinedClickable(
                                                     onClick = {
-                                                        val charsToDelete = currentComposingWord.length
+                                                        val charsToDelete = composingWord.length
                                                         PersonalDictionary.learnWord(context, suggestion)
-                                                        currentComposingWord = ""
                                                         onSuggestionSelected(suggestion, charsToDelete)
                                                     },
                                                     onLongClick = {
                                                         PersonalDictionary.removeWord(context, suggestion)
+                                                        dictRevision++
                                                         Toast.makeText(context, "Kata '$suggestion' telah dihapus dari kamus", Toast.LENGTH_SHORT).show()
-                                                        currentComposingWord = ""
                                                     }
                                                 ),
                                             contentAlignment = Alignment.Center
@@ -824,175 +973,427 @@ fun SmartKeyboardView(
                 KeyboardMode.ALPHA -> {
                     // Optional Top Number Row
                     if (config.showNumberRow) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            numberRow.forEach { num ->
-                                ThemedKeyButton(
-                                    text = num,
-                                    secondarySymbol = null,
-                                    showSecondarySymbol = false,
-                                    keyColor = effectiveKeyColor.copy(alpha = (config.keyOpacity * 0.85f).coerceIn(0.1f, 1f)),
-                                    textColor = config.textColor,
-                                    cornerRadiusDp = effectiveRadius,
-                                    keyHeightDp = (config.keyHeightDp - 6).coerceAtLeast(34),
-                                    modifier = Modifier.weight(1f),
-                                    onClick = {
-                                        if (currentComposingWord.isNotBlank()) {
-                                            PersonalDictionary.learnWord(context, currentComposingWord)
-                                            currentComposingWord = ""
-                                        }
-                                        onKeyPress(num)
-                                    },
-                                    onLongClick = { onKeyPress(num) }
-                                )
+                        if (isSplit) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf("1", "2", "3", "4", "5").forEach { num ->
+                                        ThemedKeyButton(
+                                            text = num,
+                                            secondarySymbol = null,
+                                            showSecondarySymbol = false,
+                                            fontSizeSp = config.keyFontSizeSp,
+                                            keyColor = effectiveKeyColor.copy(alpha = (config.keyOpacity * 0.85f).coerceIn(0.1f, 1f)),
+                                            textColor = config.textColor,
+                                            cornerRadiusDp = effectiveRadius,
+                                            keyHeightDp = (config.keyHeightDp - 6).coerceAtLeast(34),
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { onKeyPress(num) },
+                                            onLongClick = { onKeyPress(num) }
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(24.dp))
+                                Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf("6", "7", "8", "9", "0").forEach { num ->
+                                        ThemedKeyButton(
+                                            text = num,
+                                            secondarySymbol = null,
+                                            showSecondarySymbol = false,
+                                            fontSizeSp = config.keyFontSizeSp,
+                                            keyColor = effectiveKeyColor.copy(alpha = (config.keyOpacity * 0.85f).coerceIn(0.1f, 1f)),
+                                            textColor = config.textColor,
+                                            cornerRadiusDp = effectiveRadius,
+                                            keyHeightDp = (config.keyHeightDp - 6).coerceAtLeast(34),
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { onKeyPress(num) },
+                                            onLongClick = { onKeyPress(num) }
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                numberRow.forEach { num ->
+                                    ThemedKeyButton(
+                                        text = num,
+                                        secondarySymbol = null,
+                                        showSecondarySymbol = false,
+                                        fontSizeSp = config.keyFontSizeSp,
+                                        keyColor = effectiveKeyColor.copy(alpha = (config.keyOpacity * 0.85f).coerceIn(0.1f, 1f)),
+                                        textColor = config.textColor,
+                                        cornerRadiusDp = effectiveRadius,
+                                        keyHeightDp = (config.keyHeightDp - 6).coerceAtLeast(34),
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { onKeyPress(num) },
+                                        onLongClick = { onKeyPress(num) }
+                                    )
+                                }
                             }
                         }
                     }
 
                     // Row 1 (Letters + Secondary Symbols)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        row1Alpha.forEachIndexed { index, key ->
-                            val text = if (isShifted) key.uppercase() else key
-                            val symbol = row1Symbols.getOrNull(index)
-                            ThemedKeyButton(
-                                text = text,
-                                secondarySymbol = symbol,
-                                showSecondarySymbol = config.showKeySymbols,
-                                keyColor = effectiveKeyColor,
-                                textColor = config.textColor,
-                                cornerRadiusDp = effectiveRadius,
-                                keyHeightDp = config.keyHeightDp,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    currentComposingWord += text
-                                    onKeyPress(text)
-                                    if (isShifted) isShifted = false
-                                },
-                                onLongClick = {
-                                    if (config.enableLongPressSymbols && symbol != null) {
-                                        if (currentComposingWord.isNotBlank()) {
-                                            PersonalDictionary.learnWord(context, currentComposingWord)
-                                            currentComposingWord = ""
+                    if (isSplit) {
+                        val leftKeys = listOf("q", "w", "e", "r", "t")
+                        val rightKeys = listOf("y", "u", "i", "o", "p")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                leftKeys.forEachIndexed { index, key ->
+                                    val text = if (isShifted) key.uppercase() else key
+                                    val symbol = row1Symbols.getOrNull(index)
+                                    ThemedKeyButton(
+                                        text = text,
+                                        secondarySymbol = symbol,
+                                        showSecondarySymbol = config.showKeySymbols,
+                                        fontSizeSp = config.keyFontSizeSp,
+                                        keyColor = effectiveKeyColor,
+                                        textColor = config.textColor,
+                                        symbolColor = config.accentColor,
+                                        cornerRadiusDp = effectiveRadius,
+                                        keyHeightDp = config.keyHeightDp,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            onKeyPress(text)
+                                            if (isShifted) isShifted = false
+                                        },
+                                        onLongClick = {
+                                            if (config.enableLongPressSymbols && symbol != null) {
+                                                onKeyPress(symbol)
+                                            } else {
+                                                onKeyPress(text)
+                                            }
                                         }
-                                        onKeyPress(symbol)
-                                    } else {
-                                        currentComposingWord += text
-                                        onKeyPress(text)
-                                    }
+                                    )
                                 }
-                            )
+                            }
+                            Spacer(modifier = Modifier.width(24.dp))
+                            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                rightKeys.forEachIndexed { index, key ->
+                                    val text = if (isShifted) key.uppercase() else key
+                                    val symbol = row1Symbols.getOrNull(index + 5)
+                                    ThemedKeyButton(
+                                        text = text,
+                                        secondarySymbol = symbol,
+                                        showSecondarySymbol = config.showKeySymbols,
+                                        fontSizeSp = config.keyFontSizeSp,
+                                        keyColor = effectiveKeyColor,
+                                        textColor = config.textColor,
+                                        symbolColor = config.accentColor,
+                                        cornerRadiusDp = effectiveRadius,
+                                        keyHeightDp = config.keyHeightDp,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            onKeyPress(text)
+                                            if (isShifted) isShifted = false
+                                        },
+                                        onLongClick = {
+                                            if (config.enableLongPressSymbols && symbol != null) {
+                                                onKeyPress(symbol)
+                                            } else {
+                                                onKeyPress(text)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            row1Alpha.forEachIndexed { index, key ->
+                                val text = if (isShifted) key.uppercase() else key
+                                val symbol = row1Symbols.getOrNull(index)
+                                ThemedKeyButton(
+                                    text = text,
+                                    secondarySymbol = symbol,
+                                    showSecondarySymbol = config.showKeySymbols,
+                                    fontSizeSp = config.keyFontSizeSp,
+                                    keyColor = effectiveKeyColor,
+                                    textColor = config.textColor,
+                                    cornerRadiusDp = effectiveRadius,
+                                    keyHeightDp = config.keyHeightDp,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        onKeyPress(text)
+                                        if (isShifted) isShifted = false
+                                    },
+                                    onLongClick = {
+                                        if (config.enableLongPressSymbols && symbol != null) {
+                                            onKeyPress(symbol)
+                                        } else {
+                                            onKeyPress(text)
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
 
                     // Row 2 (Letters + Secondary Symbols)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        row2Alpha.forEachIndexed { index, key ->
-                            val text = if (isShifted) key.uppercase() else key
-                            val symbol = row2Symbols.getOrNull(index)
-                            ThemedKeyButton(
-                                text = text,
-                                secondarySymbol = symbol,
-                                showSecondarySymbol = config.showKeySymbols,
-                                keyColor = effectiveKeyColor,
-                                textColor = config.textColor,
-                                cornerRadiusDp = effectiveRadius,
-                                keyHeightDp = config.keyHeightDp,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    currentComposingWord += text
-                                    onKeyPress(text)
-                                    if (isShifted) isShifted = false
-                                },
-                                onLongClick = {
-                                    if (config.enableLongPressSymbols && symbol != null) {
-                                        if (currentComposingWord.isNotBlank()) {
-                                            PersonalDictionary.learnWord(context, currentComposingWord)
-                                            currentComposingWord = ""
+                    if (isSplit) {
+                        val leftKeys = listOf("a", "s", "d", "f", "g")
+                        val rightKeys = listOf("h", "j", "k", "l")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                leftKeys.forEachIndexed { index, key ->
+                                    val text = if (isShifted) key.uppercase() else key
+                                    val symbol = row2Symbols.getOrNull(index)
+                                    ThemedKeyButton(
+                                        text = text,
+                                        secondarySymbol = symbol,
+                                        showSecondarySymbol = config.showKeySymbols,
+                                        fontSizeSp = config.keyFontSizeSp,
+                                        keyColor = effectiveKeyColor,
+                                        textColor = config.textColor,
+                                        symbolColor = config.accentColor,
+                                        cornerRadiusDp = effectiveRadius,
+                                        keyHeightDp = config.keyHeightDp,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            onKeyPress(text)
+                                            if (isShifted) isShifted = false
+                                        },
+                                        onLongClick = {
+                                            if (config.enableLongPressSymbols && symbol != null) {
+                                                onKeyPress(symbol)
+                                            } else {
+                                                onKeyPress(text)
+                                            }
                                         }
-                                        onKeyPress(symbol)
-                                    } else {
-                                        currentComposingWord += text
-                                        onKeyPress(text)
-                                    }
+                                    )
                                 }
-                            )
+                            }
+                            Spacer(modifier = Modifier.width(24.dp))
+                            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                rightKeys.forEachIndexed { index, key ->
+                                    val text = if (isShifted) key.uppercase() else key
+                                    val symbol = row2Symbols.getOrNull(index + 5)
+                                    ThemedKeyButton(
+                                        text = text,
+                                        secondarySymbol = symbol,
+                                        showSecondarySymbol = config.showKeySymbols,
+                                        fontSizeSp = config.keyFontSizeSp,
+                                        keyColor = effectiveKeyColor,
+                                        textColor = config.textColor,
+                                        symbolColor = config.accentColor,
+                                        cornerRadiusDp = effectiveRadius,
+                                        keyHeightDp = config.keyHeightDp,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            onKeyPress(text)
+                                            if (isShifted) isShifted = false
+                                        },
+                                        onLongClick = {
+                                            if (config.enableLongPressSymbols && symbol != null) {
+                                                onKeyPress(symbol)
+                                            } else {
+                                                onKeyPress(text)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            row2Alpha.forEachIndexed { index, key ->
+                                val text = if (isShifted) key.uppercase() else key
+                                val symbol = row2Symbols.getOrNull(index)
+                                ThemedKeyButton(
+                                    text = text,
+                                    secondarySymbol = symbol,
+                                    showSecondarySymbol = config.showKeySymbols,
+                                    fontSizeSp = config.keyFontSizeSp,
+                                    keyColor = effectiveKeyColor,
+                                    textColor = config.textColor,
+                                    cornerRadiusDp = effectiveRadius,
+                                    keyHeightDp = config.keyHeightDp,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        onKeyPress(text)
+                                        if (isShifted) isShifted = false
+                                    },
+                                    onLongClick = {
+                                        if (config.enableLongPressSymbols && symbol != null) {
+                                            onKeyPress(symbol)
+                                        } else {
+                                            onKeyPress(text)
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
 
                     // Row 3 (Shift, letters, Backspace)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        ThemedActionKeyButton(
-                            text = if (isShifted) "⇪" else "⇧",
-                            isHighlighted = isShifted,
-                            accentColor = config.accentColor,
-                            defaultBg = actionKeyColor,
-                            defaultText = config.textColor,
-                            cornerRadiusDp = effectiveRadius,
-                            keyHeightDp = config.keyHeightDp,
-                            modifier = Modifier.weight(1.5f),
-                            onClick = { isShifted = !isShifted }
-                        )
-
-                        row3Alpha.forEachIndexed { index, key ->
-                            val text = if (isShifted) key.uppercase() else key
-                            val symbol = row3Symbols.getOrNull(index)
-                            ThemedKeyButton(
-                                text = text,
-                                secondarySymbol = symbol,
-                                showSecondarySymbol = config.showKeySymbols,
-                                keyColor = effectiveKeyColor,
-                                textColor = config.textColor,
+                    if (isSplit) {
+                        val leftKeys = listOf("z", "x", "c", "v")
+                        val rightKeys = listOf("b", "n", "m")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                ThemedActionKeyButton(
+                                    text = if (isShifted) "⇪" else "⇧",
+                                    isHighlighted = isShifted,
+                                    accentColor = config.accentColor,
+                                    defaultBg = actionKeyColor,
+                                    defaultText = config.textColor,
+                                    cornerRadiusDp = effectiveRadius,
+                                    keyHeightDp = config.keyHeightDp,
+                                    modifier = Modifier.weight(1.2f),
+                                    onClick = { isShifted = !isShifted }
+                                )
+                                leftKeys.forEachIndexed { index, key ->
+                                    val text = if (isShifted) key.uppercase() else key
+                                    val symbol = row3Symbols.getOrNull(index)
+                                    ThemedKeyButton(
+                                        text = text,
+                                        secondarySymbol = symbol,
+                                        showSecondarySymbol = config.showKeySymbols,
+                                        fontSizeSp = config.keyFontSizeSp,
+                                        keyColor = effectiveKeyColor,
+                                        textColor = config.textColor,
+                                        symbolColor = config.accentColor,
+                                        cornerRadiusDp = effectiveRadius,
+                                        keyHeightDp = config.keyHeightDp,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            onKeyPress(text)
+                                            if (isShifted) isShifted = false
+                                        },
+                                        onLongClick = {
+                                            if (config.enableLongPressSymbols && symbol != null) {
+                                                onKeyPress(symbol)
+                                            } else {
+                                                onKeyPress(text)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(24.dp))
+                            Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                rightKeys.forEachIndexed { index, key ->
+                                    val text = if (isShifted) key.uppercase() else key
+                                    val symbol = row3Symbols.getOrNull(index + 4)
+                                    ThemedKeyButton(
+                                        text = text,
+                                        secondarySymbol = symbol,
+                                        showSecondarySymbol = config.showKeySymbols,
+                                        fontSizeSp = config.keyFontSizeSp,
+                                        keyColor = effectiveKeyColor,
+                                        textColor = config.textColor,
+                                        symbolColor = config.accentColor,
+                                        cornerRadiusDp = effectiveRadius,
+                                        keyHeightDp = config.keyHeightDp,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            onKeyPress(text)
+                                            if (isShifted) isShifted = false
+                                        },
+                                        onLongClick = {
+                                            if (config.enableLongPressSymbols && symbol != null) {
+                                                onKeyPress(symbol)
+                                            } else {
+                                                onKeyPress(text)
+                                            }
+                                        }
+                                    )
+                                }
+                                RepeatingDeleteKeyButton(
+                                    text = "⌫",
+                                    accentColor = config.accentColor,
+                                    defaultBg = actionKeyColor,
+                                    defaultText = config.textColor,
+                                    cornerRadiusDp = effectiveRadius,
+                                    keyHeightDp = config.keyHeightDp,
+                                    modifier = Modifier.weight(1.3f),
+                                    onDelete = onBackspace,
+                                    onDeleteComplete = onBackspaceComplete
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            ThemedActionKeyButton(
+                                text = if (isShifted) "⇪" else "⇧",
+                                isHighlighted = isShifted,
+                                accentColor = config.accentColor,
+                                defaultBg = actionKeyColor,
+                                defaultText = config.textColor,
                                 cornerRadiusDp = effectiveRadius,
                                 keyHeightDp = config.keyHeightDp,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    currentComposingWord += text
-                                    onKeyPress(text)
-                                    if (isShifted) isShifted = false
-                                },
-                                onLongClick = {
-                                    if (config.enableLongPressSymbols && symbol != null) {
-                                        if (currentComposingWord.isNotBlank()) {
-                                            PersonalDictionary.learnWord(context, currentComposingWord)
-                                            currentComposingWord = ""
-                                        }
-                                        onKeyPress(symbol)
-                                    } else {
-                                        currentComposingWord += text
+                                modifier = Modifier.weight(1.5f),
+                                onClick = { isShifted = !isShifted }
+                            )
+
+                            row3Alpha.forEachIndexed { index, key ->
+                                val text = if (isShifted) key.uppercase() else key
+                                val symbol = row3Symbols.getOrNull(index)
+                                ThemedKeyButton(
+                                    text = text,
+                                    secondarySymbol = symbol,
+                                    showSecondarySymbol = config.showKeySymbols,
+                                    fontSizeSp = config.keyFontSizeSp,
+                                    keyColor = effectiveKeyColor,
+                                    textColor = config.textColor,
+                                    cornerRadiusDp = effectiveRadius,
+                                    keyHeightDp = config.keyHeightDp,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
                                         onKeyPress(text)
+                                        if (isShifted) isShifted = false
+                                    },
+                                    onLongClick = {
+                                        if (config.enableLongPressSymbols && symbol != null) {
+                                            onKeyPress(symbol)
+                                        } else {
+                                            onKeyPress(text)
+                                        }
                                     }
-                                }
+                                )
+                            }
+
+                            RepeatingDeleteKeyButton(
+                                text = "⌫",
+                                accentColor = config.accentColor,
+                                defaultBg = actionKeyColor,
+                                defaultText = config.textColor,
+                                cornerRadiusDp = effectiveRadius,
+                                keyHeightDp = config.keyHeightDp,
+                                modifier = Modifier.weight(1.5f),
+                                onDelete = onBackspace,
+                                onDeleteComplete = onBackspaceComplete
                             )
                         }
-
-                        RepeatingDeleteKeyButton(
-                            text = "⌫",
-                            accentColor = config.accentColor,
-                            defaultBg = actionKeyColor,
-                            defaultText = config.textColor,
-                            cornerRadiusDp = effectiveRadius,
-                            keyHeightDp = config.keyHeightDp,
-                            modifier = Modifier.weight(1.5f),
-                            onDelete = {
-                                if (currentComposingWord.isNotEmpty()) {
-                                    currentComposingWord = currentComposingWord.dropLast(1)
-                                }
-                                onBackspace()
-                            }
-                        )
                     }
                 }
 
@@ -1007,6 +1408,7 @@ fun SmartKeyboardView(
                                 text = key,
                                 secondarySymbol = null,
                                 showSecondarySymbol = false,
+                                fontSizeSp = config.keyFontSizeSp,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
                                 cornerRadiusDp = effectiveRadius,
@@ -1030,6 +1432,7 @@ fun SmartKeyboardView(
                                 text = key,
                                 secondarySymbol = null,
                                 showSecondarySymbol = false,
+                                fontSizeSp = config.keyFontSizeSp,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
                                 cornerRadiusDp = effectiveRadius,
@@ -1051,6 +1454,7 @@ fun SmartKeyboardView(
                                 text = key,
                                 secondarySymbol = null,
                                 showSecondarySymbol = false,
+                                fontSizeSp = config.keyFontSizeSp,
                                 keyColor = effectiveKeyColor,
                                 textColor = config.textColor,
                                 cornerRadiusDp = effectiveRadius,
@@ -1068,7 +1472,8 @@ fun SmartKeyboardView(
                             cornerRadiusDp = effectiveRadius,
                             keyHeightDp = config.keyHeightDp,
                             modifier = Modifier.weight(1.5f),
-                            onDelete = onBackspace
+                            onDelete = onBackspace,
+                            onDeleteComplete = onBackspaceComplete
                         )
                     }
                 }
@@ -1114,7 +1519,8 @@ fun SmartKeyboardView(
                             cornerRadiusDp = effectiveRadius,
                             keyHeightDp = (config.keyHeightDp - 6).coerceAtLeast(36),
                             modifier = Modifier.width(52.dp),
-                            onDelete = onBackspace
+                            onDelete = onBackspace,
+                            onDeleteComplete = onBackspaceComplete
                         )
                     }
 
@@ -1147,7 +1553,7 @@ fun SmartKeyboardView(
                 }
             }
 
-            // Bottom control row: Mode toggle, Emoji/Symbols, Space, Period, Enter (Clean, no duplicate ABC, enlarged Enter key)
+            // Bottom control row: Mode toggle, Space, Period/Comma, Enter (Smaller Enter, long-press Enter for Emoji)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1160,85 +1566,45 @@ fun SmartKeyboardView(
                     defaultText = config.textColor,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1.1f),
+                    modifier = Modifier.weight(1.2f),
                     onClick = {
-                        if (currentComposingWord.isNotBlank()) {
-                            PersonalDictionary.learnWord(context, currentComposingWord)
-                            currentComposingWord = ""
-                        }
                         mode = if (mode == KeyboardMode.ALPHA) KeyboardMode.NUMBERS else KeyboardMode.ALPHA
                     },
                     onLongClick = onOpenSettings
                 )
 
-                ThemedActionKeyButton(
-                    text = when (mode) {
-                        KeyboardMode.EMOJI -> "?123"
-                        else -> "😊"
-                    },
-                    accentColor = config.accentColor,
-                    defaultBg = actionKeyColor,
-                    defaultText = config.textColor,
-                    cornerRadiusDp = effectiveRadius,
-                    keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1.0f),
-                    onClick = {
-                        if (currentComposingWord.isNotBlank()) {
-                            PersonalDictionary.learnWord(context, currentComposingWord)
-                            currentComposingWord = ""
-                        }
-                        mode = when (mode) {
-                            KeyboardMode.EMOJI -> KeyboardMode.NUMBERS
-                            else -> KeyboardMode.EMOJI
-                        }
-                    }
-                )
+                // Space bar (generous width with instant response)
+                val currentOnSpace by rememberUpdatedState(onSpace)
+                val currentOnSuggestionSelected by rememberUpdatedState(onSuggestionSelected)
+                var isSpacePressed by remember { mutableStateOf(false) }
+                val spaceBg = if (isSpacePressed) effectiveKeyColor.copy(alpha = (effectiveKeyColor.alpha + 0.25f).coerceAtMost(1f)) else effectiveKeyColor
 
-                // Space bar (generous width)
                 Box(
                     modifier = Modifier
-                        .weight(3.0f)
+                        .weight(3.6f)
                         .height(config.keyHeightDp.dp)
                         .clip(getKeyShape(config.keyShapeStyle, effectiveRadius))
-                        .background(effectiveKeyColor)
-                        .combinedClickable(
-                            onClick = {
-                                val trimmedWord = currentComposingWord.trim()
+                        .background(spaceBg)
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                isSpacePressed = true
+                                waitForUpOrCancellation()
+                                isSpacePressed = false
+
+                                val trimmedWord = composingWord.trim()
                                 val matchedAutoText = if (trimmedWord.isNotEmpty()) {
                                     autoTextEntries.firstOrNull { it.shortcut.equals(trimmedWord, ignoreCase = true) }
                                 } else null
 
                                 if (matchedAutoText != null) {
-                                    val charsToDelete = currentComposingWord.length
-                                    currentComposingWord = ""
-                                    onSuggestionSelected(matchedAutoText.fullText + " ", charsToDelete)
+                                    val charsToDelete = composingWord.length
+                                    currentOnSuggestionSelected(matchedAutoText.fullText + " ", charsToDelete)
                                 } else {
-                                    if (currentComposingWord.isNotBlank()) {
-                                        PersonalDictionary.learnWord(context, currentComposingWord)
-                                        currentComposingWord = ""
-                                    }
-                                    onSpace()
-                                }
-                            },
-                            onLongClick = {
-                                val trimmedWord = currentComposingWord.trim()
-                                val matchedAutoText = if (trimmedWord.isNotEmpty()) {
-                                    autoTextEntries.firstOrNull { it.shortcut.equals(trimmedWord, ignoreCase = true) }
-                                } else null
-
-                                if (matchedAutoText != null) {
-                                    val charsToDelete = currentComposingWord.length
-                                    currentComposingWord = ""
-                                    onSuggestionSelected(matchedAutoText.fullText + " ", charsToDelete)
-                                } else {
-                                    if (currentComposingWord.isNotBlank()) {
-                                        PersonalDictionary.learnWord(context, currentComposingWord)
-                                        currentComposingWord = ""
-                                    }
-                                    onSpace()
+                                    currentOnSpace()
                                 }
                             }
-                        ),
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -1249,11 +1615,12 @@ fun SmartKeyboardView(
                     )
                 }
 
-                // Period key
+                // Period key with long-press comma
                 ThemedKeyButton(
                     text = ".",
-                    secondarySymbol = null,
-                    showSecondarySymbol = false,
+                    secondarySymbol = ",",
+                    showSecondarySymbol = true,
+                    fontSizeSp = config.keyFontSizeSp,
                     keyColor = effectiveKeyColor,
                     textColor = config.textColor,
                     symbolColor = config.accentColor,
@@ -1261,22 +1628,14 @@ fun SmartKeyboardView(
                     keyHeightDp = config.keyHeightDp,
                     modifier = Modifier.weight(1.0f),
                     onClick = {
-                        if (currentComposingWord.isNotBlank()) {
-                            PersonalDictionary.learnWord(context, currentComposingWord)
-                            currentComposingWord = ""
-                        }
                         onKeyPress(".")
                     },
                     onLongClick = {
-                        if (currentComposingWord.isNotBlank()) {
-                            PersonalDictionary.learnWord(context, currentComposingWord)
-                            currentComposingWord = ""
-                        }
-                        onKeyPress(".")
+                        onKeyPress(",")
                     }
                 )
 
-                // Enter key (prominent, unclipped, bold high-res return arrow icon)
+                // Enter key (smaller, long-press for Emoji menu)
                 ThemedActionKeyButton(
                     accentColor = config.accentColor,
                     defaultBg = config.accentColor,
@@ -1284,13 +1643,10 @@ fun SmartKeyboardView(
                     isHighlighted = true,
                     cornerRadiusDp = effectiveRadius,
                     keyHeightDp = config.keyHeightDp,
-                    modifier = Modifier.weight(1.8f),
-                    onClick = {
-                        if (currentComposingWord.isNotBlank()) {
-                            PersonalDictionary.learnWord(context, currentComposingWord)
-                            currentComposingWord = ""
-                        }
-                        onEnter()
+                    modifier = Modifier.weight(1.3f),
+                    onClick = onEnter,
+                    onLongClick = {
+                        mode = KeyboardMode.EMOJI
                     },
                     icon = {
                         Canvas(modifier = Modifier.size(24.dp)) {
@@ -1333,12 +1689,12 @@ fun SmartKeyboardView(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThemedKeyButton(
     text: String,
     secondarySymbol: String?,
     showSecondarySymbol: Boolean,
+    fontSizeSp: Int = 17,
     keyColor: Color,
     textColor: Color,
     symbolColor: Color = textColor,
@@ -1349,16 +1705,40 @@ fun ThemedKeyButton(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnLongClick by rememberUpdatedState(onLongClick)
+    val hasLongClick = showSecondarySymbol && secondarySymbol != null
     val shape = getKeyShape(keyShapeStyle, cornerRadiusDp)
+    var isPressed by remember { mutableStateOf(false) }
+
+    val bg = if (isPressed) keyColor.copy(alpha = (keyColor.alpha + 0.25f).coerceAtMost(1f)) else keyColor
+
     Box(
         modifier = modifier
             .height(keyHeightDp.dp)
             .clip(shape)
-            .background(keyColor)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
+            .background(bg)
+            .pointerInput(hasLongClick) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    if (hasLongClick) {
+                        try {
+                            withTimeout(380L) {
+                                waitForUpOrCancellation()
+                            }
+                            currentOnClick()
+                        } catch (e: PointerEventTimeoutCancellationException) {
+                            currentOnLongClick()
+                            waitForUpOrCancellation()
+                        }
+                    } else {
+                        waitForUpOrCancellation()
+                        currentOnClick()
+                    }
+                    isPressed = false
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         // Small secondary symbol hint in top-right corner with high contrast color
@@ -1378,14 +1758,13 @@ fun ThemedKeyButton(
         Text(
             text = text,
             color = textColor,
-            fontSize = 17.sp,
+            fontSize = fontSizeSp.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.align(Alignment.Center)
         )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThemedActionIconButton(
     modifier: Modifier = Modifier,
@@ -1399,23 +1778,46 @@ fun ThemedActionIconButton(
     onLongClick: () -> Unit = onClick,
     content: @Composable () -> Unit
 ) {
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnLongClick by rememberUpdatedState(onLongClick)
+    val hasDistinctLongClick = onLongClick != onClick
     val shape = getKeyShape(keyShapeStyle, cornerRadiusDp)
+    var isPressed by remember { mutableStateOf(false) }
+
+    val bg = if (isPressed) accentColor.copy(alpha = 0.35f) else defaultBg
+
     Box(
         modifier = modifier
             .height(keyHeightDp.dp)
             .clip(shape)
-            .background(defaultBg)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
+            .background(bg)
+            .pointerInput(hasDistinctLongClick) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    if (hasDistinctLongClick) {
+                        try {
+                            withTimeout(380L) {
+                                waitForUpOrCancellation()
+                            }
+                            currentOnClick()
+                        } catch (e: PointerEventTimeoutCancellationException) {
+                            currentOnLongClick()
+                            waitForUpOrCancellation()
+                        }
+                    } else {
+                        waitForUpOrCancellation()
+                        currentOnClick()
+                    }
+                    isPressed = false
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         content()
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThemedActionKeyButton(
     text: String = "",
@@ -1431,19 +1833,44 @@ fun ThemedActionKeyButton(
     onLongClick: () -> Unit = onClick,
     icon: (@Composable () -> Unit)? = null
 ) {
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnLongClick by rememberUpdatedState(onLongClick)
+    val hasDistinctLongClick = onLongClick != onClick
     val bg = if (isHighlighted) accentColor else defaultBg
     val fg = if (isHighlighted) Color.White else defaultText
     val shape = getKeyShape(keyShapeStyle, cornerRadiusDp)
+    var isPressed by remember { mutableStateOf(false) }
+
+    val displayBg = if (isPressed) {
+        if (isHighlighted) accentColor.copy(alpha = 0.8f) else accentColor.copy(alpha = 0.35f)
+    } else bg
 
     Box(
         modifier = modifier
             .height(keyHeightDp.dp)
             .clip(shape)
-            .background(bg)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
+            .background(displayBg)
+            .pointerInput(hasDistinctLongClick) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    if (hasDistinctLongClick) {
+                        try {
+                            withTimeout(380L) {
+                                waitForUpOrCancellation()
+                            }
+                            currentOnClick()
+                        } catch (e: PointerEventTimeoutCancellationException) {
+                            currentOnLongClick()
+                            waitForUpOrCancellation()
+                        }
+                    } else {
+                        waitForUpOrCancellation()
+                        currentOnClick()
+                    }
+                    isPressed = false
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         if (icon != null) {
@@ -1469,24 +1896,24 @@ fun RepeatingDeleteKeyButton(
     keyShapeStyle: String = "rounded",
     cornerRadiusDp: Int,
     keyHeightDp: Int = 44,
-    onDelete: () -> Unit
+    onDelete: (Boolean) -> Unit,
+    onDeleteComplete: () -> Unit = {}
 ) {
     val currentOnDelete by rememberUpdatedState(onDelete)
+    val currentOnDeleteComplete by rememberUpdatedState(onDeleteComplete)
     var isPressed by remember { mutableStateOf(false) }
 
     LaunchedEffect(isPressed) {
         if (isPressed) {
-            // First immediate deletion on touch down
-            currentOnDelete()
-            // Initial delay before continuous repeat starts (400ms)
-            delay(400L)
+            // Initial delay before continuous repeat starts (350ms)
+            delay(350L)
             var deleteCount = 0
             // Continuous deletion while held
             while (isPressed) {
-                currentOnDelete()
+                currentOnDelete(true)
                 deleteCount++
-                // Accelerate after deleting multiple characters
-                val interval = if (deleteCount > 12) 35L else 55L
+                // Accelerate after deleting multiple characters: 55ms -> 45ms
+                val interval = if (deleteCount > 10) 45L else 55L
                 delay(interval)
             }
         }
@@ -1504,9 +1931,11 @@ fun RepeatingDeleteKeyButton(
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
+                    currentOnDelete(false)
                     isPressed = true
                     waitForUpOrCancellation()
                     isPressed = false
+                    currentOnDeleteComplete()
                 }
             },
         contentAlignment = Alignment.Center

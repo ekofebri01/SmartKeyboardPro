@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.5] - 2026-10-25
+
+### ⌨️ UI/UX Keyboard Layout & Feature Improvements
+- **Perbaikan Tata Letak & Tombol Khusus**:
+  - Menghapus tombol smiley (`😊`) dari bilah kontrol bawah.
+  - Memindahkan akses menu Emoji/Smiley ke **tekan lama (long-press) pada tombol Enter**.
+  - Memperkecil ukuran/lebar tombol Enter agar lebih ergonomis.
+  - Menggabungkan koma ke dalam tombol titik (`.`): tekan lama tombol titik untuk memasukkan koma (`,`).
+- **Pengaturan Ukuran Font Tombol**:
+  - Menambahkan fitur pengaturan ukuran font teks tombol keyboard (*Key Font Size*) di Theme Studio / Pengaturan (rentang 12sp–24sp).
+- **Umpan Balik Audio/Haptic Berbeda untuk Tombol Hapus**:
+  - Tombol Backspace `⌫` kini memiliki efek suara dan getar haptic yang berbeda dan khas dibandingkan tombol huruf standar (`FX_KEYPRESS_DELETE`).
+- **Split Keyboard Mode Landscape (Gaya Samsung Keyboard)**:
+  - Mode lanskap (*landscape*) kini secara otomatis mendukung layout **Split Keyboard** (terbelah menjadi bagian kiri dan kanan dengan jeda di tengah) untuk kenyamanan mengetik dua jempol di layar lebar/tablet.
+- **Optimasi Ketikan & Stabilitas**:
+  - Penyempurnaan manajemen state pengetikan, komposisi kata, dan peredaman recomposition untuk performa IME yang jauh lebih stabil dan responsif.
+
+### 🔐 Build & Keystore Fingerprint
+- Menaikkan `versionCode` ke `145` dan `versionName` ke `"1.4.5"`.
+- Ditandatangani menggunakan kunci rilis resmi `my-upload-key.jks` (SHA-1: `C4:EB:DA:FF:7D:FC:90:07:6F:71:D3:95:BB:BE:F6:60:F9:88:D1:F3`).
+
+---
+
 ## [1.4.4] - 2026-10-25
 
 ### ⚡ Fitur Auto-Text Shortcut & Spacebar Expansion
