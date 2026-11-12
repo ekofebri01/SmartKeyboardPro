@@ -173,6 +173,35 @@ object PersonalDictionary {
         return matches.distinct().filter { !deletedWordsSet.contains(it) }.take(limit)
     }
 
+    /**
+     * Merges words from the cloud without inflating their frequency and without
+     * resurrecting words the user deleted locally (the deletion blacklist wins).
+     */
+    @Synchronized
+    fun mergeCloudWords(context: Context, entries: List<DictionaryEntry>) {
+        load(context)
+        var changed = false
+
+        entries.forEach { entry ->
+            val clean = entry.word.trim().lowercase(Locale.ROOT).filter { it.isLetter() }
+            if (clean.length < 2) return@forEach
+            if (deletedWordsSet.contains(clean)) return@forEach
+            if (wordMap.containsKey(clean)) return@forEach
+
+            wordMap[clean] = DictionaryEntry(
+                word = clean,
+                frequency = entry.frequency.coerceAtLeast(1),
+                lastUsed = entry.lastUsed
+            )
+            changed = true
+        }
+
+        if (changed) {
+            sortedWords = emptyList()
+            save(context)
+        }
+    }
+
     @Synchronized
     fun getAllLearnedWords(context: Context): List<DictionaryEntry> {
         load(context)

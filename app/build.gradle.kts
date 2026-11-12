@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
@@ -24,21 +26,53 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystoreFile = rootProject.file("my-upload-key.jks")
-            if (keystoreFile.exists()) {
+            // Signing secrets are NEVER hardcoded or committed. Provide them through
+            // environment variables or an untracked `keystore.properties` file:
+            //   STORE_FILE, STORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+            //
+            // The keystore itself must live outside this repository, for example:
+            //   STORE_FILE=$HOME/secure-keys/smartkeyboardpro/my-upload-key.jks
+            val propertiesFile = rootProject.file("keystore.properties")
+            val properties = Properties().apply {
+                if (propertiesFile.exists()) {
+                    propertiesFile.inputStream().use { load(it) }
+                }
+            }
+
+            fun readSecret(envKey: String, propertyKey: String): String? =
+                System.getenv(envKey) ?: properties.getProperty(propertyKey)
+
+            val keystoreFile = rootProject.file(readSecret("STORE_FILE", "storeFile") ?: "my-upload-key.jks")
+            val resolvedStorePassword = readSecret("STORE_PASSWORD", "storePassword")
+            val resolvedKeyAlias = readSecret("KEY_ALIAS", "keyAlias")
+            val resolvedKeyPassword = readSecret("KEY_PASSWORD", "keyPassword")
+
+            if (keystoreFile.exists() &&
+                resolvedStorePassword != null &&
+                resolvedKeyAlias != null &&
+                resolvedKeyPassword != null
+            ) {
                 storeFile = keystoreFile
-                storePassword = System.getenv("STORE_PASSWORD") ?: "android"
-                keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
-                keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
+                storePassword = resolvedStorePassword
+                keyAlias = resolvedKeyAlias
+                keyPassword = resolvedKeyPassword
                 enableV1Signing = true
                 enableV2Signing = true
+            } else {
+                logger.lifecycle(
+                    "Release signing disabled: set STORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD " +
+                        "(or create keystore.properties) and provide a keystore at ${keystoreFile.path}."
+                )
             }
         }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Keep R8 enabled: the released APK is distributed outside Play and is
+            // downloaded/installed by the in-app updater.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -49,12 +83,9 @@ android {
             }
         }
         debug {
-            // Keep identical applicationId (no .debug suffix) and identical signature
-            // so in-app updates install seamlessly over any previous version without signature conflict
-            val releaseSign = signingConfigs.getByName("release")
-            if (releaseSign.storeFile != null && releaseSign.storeFile!!.exists()) {
-                signingConfig = releaseSign
-            }
+            // Debug builds are signed with the default debug keystore only. Reusing the
+            // production upload key here would let any debug build masquerade as a
+            // trusted release of the same package name.
         }
     }
     compileOptions {

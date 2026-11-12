@@ -19,9 +19,8 @@ All notable changes to this project will be documented in this file.
 - **Optimasi Ketikan & Stabilitas**:
   - Penyempurnaan manajemen state pengetikan, komposisi kata, dan peredaman recomposition untuk performa IME yang jauh lebih stabil dan responsif.
 
-### 🔐 Build & Keystore Fingerprint
+### 🔐 Build
 - Menaikkan `versionCode` ke `145` dan `versionName` ke `"1.4.5"`.
-- Ditandatangani menggunakan kunci rilis resmi `my-upload-key.jks` (SHA-1: `C4:EB:DA:FF:7D:FC:90:07:6F:71:D3:95:BB:BE:F6:60:F9:88:D1:F3`).
 
 ---
 
@@ -42,12 +41,8 @@ All notable changes to this project will be documented in this file.
   - Snapshot backup cloud dan live Cloud Database Inspector kini otomatis mencakup pintasan Auto-Text.
   - Keamanan Firestore diperbarui dengan aturan otorisasi berbasis UID pengguna.
 
-### 🔐 Build & Keystore Fingerprint
+### 🔐 Build
 - Menaikkan `versionCode` ke `144` dan `versionName` ke `"1.4.4"`.
-- Ditandatangani menggunakan kunci rilis resmi `my-upload-key.jks` dengan skema v1 (JAR) & v2 (APK Signature):
-  - **SHA-1**: `C4:EB:DA:FF:7D:FC:90:07:6F:71:D3:95:BB:BE:F6:60:F9:88:D1:F3`
-  - **SHA-256**: `85:56:64:F7:2E:8C:F5:D5:C3:3C:5F:48:4F:51:83:4A:6A:FF:30:80:6B:F9:9F:69:DF:54:B1:7C:A0:EB:3D:B9`
-- Berkas rilis siap pakai mandiri disediakan: `SmartKeyboardPro-v1.4.4-release-signed.apk`.
 
 ---
 
@@ -57,11 +52,6 @@ All notable changes to this project will be documented in this file.
 - **Dukungan Seamless In-Place Update (Tanpa Uninstall)**:
   - Menaikkan `versionCode` ke `143` sehingga Android Package Manager mengenali APK sebagai pembaruan sah dan langsung menimpa (*in-place update*) versi 1.4.2 tanpa memicu pesan galat bentrok paket.
   - Mengaktifkan skema penandatanganan ganda secara eksplisit: **v1 Scheme (JAR signing)** dan **v2 Scheme (APK Signature Scheme)** untuk memastikan kompatibilitas penuh di seluruh Android OS dan installer pihak ketiga/vendor OEM.
-- **Konsistensi Fingerprint Lintas Perangkat**:
-  - Semua build (`release` dan `debug`) dijamin ditandatangani menggunakan kunci yang sama (`my-upload-key.jks`):
-    - **SHA-1**: `C4:EB:DA:FF:7D:FC:90:07:6F:71:D3:95:BB:BE:F6:60:F9:88:D1:F3`
-    - **SHA-256**: `85:56:64:F7:2E:8C:F5:D5:C3:3C:5F:48:4F:51:83:4A:6A:FF:30:80:6B:F9:9F:69:DF:54:B1:7C:A0:EB:3D:B9`
-  - Berkas rilis siap pakai mandiri disediakan di root repository: `SmartKeyboardPro-v1.4.3-release-signed.apk`.
 
 ---
 
@@ -92,9 +82,6 @@ All notable changes to this project will be documented in this file.
 
 ### 🔐 Build & Security
 - **Integritas Keystore & Tanda Tangan Konsisten**:
-  - Ditandatangani menggunakan `my-upload-key.jks` yang sama dengan fingerprint identik:
-    - **SHA-1**: `C4:EB:DA:FF:7D:FC:90:07:6F:71:D3:95:BB:BE:F6:60:F9:88:D1:F3`
-    - **SHA-256**: `85:56:64:F7:2E:8C:F5:D5:C3:3C:5F:48:4F:51:83:4A:6A:FF:30:80:6B:F9:9F:69:DF:54:B1:7C:A0:EB:3D:B9`
   - Update versi aplikasi dapat langsung diinstal tanpa terjadi konflik tanda tangan (*signature mismatch*).
 
 ---

@@ -64,25 +64,43 @@ class AutoTextRepository(
         }
     }
 
+    /**
+     * Pushes every shortcut in one batch instead of one network round-trip per entry.
+     */
     suspend fun syncAllAutoTextsToCloud(entries: List<AutoTextEntry>): Boolean {
         val uid = getUid() ?: return false
         return try {
             val collection = firestore.collection("users").document(uid)
                 .collection("auto_text_shortcuts")
-            entries.forEach { entry ->
-                val data = mapOf(
-                    "id" to entry.id,
-                    "shortcut" to entry.shortcut.trim().lowercase(),
-                    "fullText" to entry.fullText.trim(),
-                    "userId" to uid,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                collection.document(entry.id).set(data, SetOptions.merge()).await()
+
+            if (entries.isEmpty()) return true
+
+            // A Firestore batch is limited to 500 writes, so commit in chunks.
+            entries.chunked(MAX_BATCH_WRITES).forEach { chunk ->
+                val batch = firestore.batch()
+                chunk.forEach { entry ->
+                    batch.set(
+                        collection.document(entry.id),
+                        mapOf(
+                            "id" to entry.id,
+                            "shortcut" to entry.shortcut.trim().lowercase(),
+                            "fullText" to entry.fullText.trim(),
+                            "userId" to uid,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        ),
+                        SetOptions.merge()
+                    )
+                }
+                batch.commit().await()
             }
             true
         } catch (e: Exception) {
             e.printStackTrace()
             false
         }
+    }
+
+    private companion object {
+        const val MAX_BATCH_WRITES = 400
     }
 }

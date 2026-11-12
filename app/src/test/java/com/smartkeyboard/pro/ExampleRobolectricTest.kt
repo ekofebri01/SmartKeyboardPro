@@ -91,9 +91,9 @@ class ExampleRobolectricTest {
 
     @Test
     fun verifyAutoTextEntryLegacyStringConversion() {
-        val legacyColon = AutoTextEntry.createFromLegacyString("alamat: Jl. Sudirman No. 123")
+        val legacyColon = AutoTextEntry.createFromLegacyString("alamat: Contoh Alamat No. 123")
         assertEquals("alamat", legacyColon.shortcut)
-        assertEquals("Jl. Sudirman No. 123", legacyColon.fullText)
+        assertEquals("Contoh Alamat No. 123", legacyColon.fullText)
 
         val legacyPlain = AutoTextEntry.createFromLegacyString("Terima kasih atas infonya!")
         assertEquals("terima", legacyPlain.shortcut)
@@ -128,7 +128,7 @@ class ExampleRobolectricTest {
         val list = listOf(
             AutoTextEntry(shortcut = "thx", fullText = "Terima kasih banyak!"),
             AutoTextEntry(shortcut = "rek", fullText = "BCA 1234567890"),
-            AutoTextEntry(shortcut = "alamat", fullText = "Jl. Sudirman No. 123")
+            AutoTextEntry(shortcut = "alamat", fullText = "Contoh Alamat No. 123")
         )
 
         // Case 1: Exact match lowercase

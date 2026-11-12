@@ -2,4 +2,4 @@
 - Ketik keyword singkatan (contoh: thx, alamat, rek) lalu tekan tombol SPASI untuk langsung menggantinya menjadi kalimat lengkap otomatis!
 - Manajemen Auto-Text baru: tambah, edit, cari, dan hapus pintasan dengan pratinjau langsung.
 - Dukungan sinkronisasi cloud database Firebase Firestore (/users/{uid}/auto_text_shortcuts) dan tombol Sync Cloud instan.
-- Peningkatan versi ke v1.4.4 (versionCode 144) dengan penandatanganan konsisten my-upload-key.jks (SHA-1 C4:EB:DA:FF... & SHA-256 85:56:64:F7...).
+- Peningkatan versi ke v1.4.4 (versionCode 144).

@@ -126,6 +126,12 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
     private var cachedAudioManager: AudioManager? = null
     private var isFastRepeatingDelete = false
 
+    /**
+     * True while the focused editor is a password / PIN / no-personalized-learning field.
+     * In that state nothing typed may be learned, suggested, expanded or synced.
+     */
+    private var isSensitiveInput by mutableStateOf(false)
+
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         loadCurrentTheme()
     }
@@ -239,33 +245,55 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
             e.printStackTrace()
         }
         if (list.isEmpty()) {
-            list.addAll(
-                listOf(
-                    AutoTextEntry(shortcut = "thx", fullText = "Terima kasih atas informasinya! 🙏"),
-                    AutoTextEntry(shortcut = "alamat", fullText = "Jl. Sudirman No. 123, Jakarta Selatan"),
-                    AutoTextEntry(shortcut = "email", fullText = "rafael.aryanto@gmail.com"),
-                    AutoTextEntry(shortcut = "halo", fullText = "Halo! Terima kasih sudah menghubungi."),
-                    AutoTextEntry(shortcut = "repo", fullText = "https://github.com/ekofebri01/SmartKeyboardPro")
-                )
-            )
+            list.addAll(DefaultAutoTexts)
         }
         liveAutoTextEntries = list
     }
 
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        isSensitiveInput = isSensitiveField(info)
         reloadAutoTextEntries()
         syncComposingWord()
         if (info != null) {
             val classType = info.inputType and InputType.TYPE_MASK_CLASS
             val variation = info.inputType and InputType.TYPE_MASK_VARIATION
-            if (classType == InputType.TYPE_CLASS_NUMBER ||
+            val numericOnly = classType == InputType.TYPE_CLASS_NUMBER ||
                 classType == InputType.TYPE_CLASS_PHONE ||
-                variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD) {
-                initialMode = KeyboardMode.NUMBERS
-            } else {
-                initialMode = KeyboardMode.ALPHA
-            }
+                variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            initialMode = if (numericOnly) KeyboardMode.NUMBERS else KeyboardMode.ALPHA
+        }
+    }
+
+    override fun onFinishInput() {
+        super.onFinishInput()
+        // Never carry a sensitive-field flag (or a half typed word) into the next field.
+        isSensitiveInput = false
+        composingWord = ""
+    }
+
+    /**
+     * A field is sensitive when it is a password/PIN input, when the editor asks for no
+     * personalized learning, or when no input type is declared at all.
+     */
+    private fun isSensitiveField(info: android.view.inputmethod.EditorInfo?): Boolean {
+        if (info == null) return true
+
+        val inputClass = info.inputType and InputType.TYPE_MASK_CLASS
+        val variation = info.inputType and InputType.TYPE_MASK_VARIATION
+        val noPersonalizedLearning =
+            info.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0
+
+        if (noPersonalizedLearning) return true
+
+        return when (inputClass) {
+            InputType.TYPE_CLASS_TEXT -> variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+
+            InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            InputType.TYPE_NULL -> true
+            else -> false
         }
     }
 
@@ -393,6 +421,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                     initialMode = initialMode,
                     customAutoTextEntries = liveAutoTextEntries,
                     composingWord = composingWord,
+                    isSensitiveInput = isSensitiveInput,
                     onKeyPress = { char ->
                         playFeedback(this)
                         currentInputConnection?.commitText(char, 1)
@@ -412,7 +441,8 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                         playFeedback(this)
                         val ic = currentInputConnection
                         var autoTextExpanded = false
-                        if (ic != null) {
+                        // Auto-text expansion stays off in password / PIN fields.
+                        if (ic != null && !isSensitiveInput) {
                             try {
                                 val beforeCursor = ic.getTextBeforeCursor(40, 0)?.toString() ?: ""
                                 val match = Regex("""([a-zA-Z0-9_\-]+)$""").find(beforeCursor)
@@ -430,7 +460,7 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                             }
                         }
                         if (!autoTextExpanded) {
-                            if (composingWord.length >= 3 && composingWord.all { it.isLetter() }) {
+                            if (!isSensitiveInput && composingWord.length >= 3 && composingWord.all { it.isLetter() }) {
                                 PersonalDictionary.learnWord(this@SmartKeyboardIME, composingWord)
                             }
                             currentInputConnection?.commitText(" ", 1)
@@ -439,11 +469,10 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
                     },
                     onEnter = {
                         playFeedback(this)
-                        if (composingWord.length >= 3 && composingWord.all { it.isLetter() }) {
+                        if (!isSensitiveInput && composingWord.length >= 3 && composingWord.all { it.isLetter() }) {
                             PersonalDictionary.learnWord(this@SmartKeyboardIME, composingWord)
                         }
-                        currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-                        currentInputConnection?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                        performEnterAction()
                         syncComposingWord()
                     },
                     onSuggestionSelected = { word, charsToDelete ->
@@ -523,6 +552,35 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
         }
     }
 
+    /**
+     * Honours the editor's imeOptions (Search / Send / Next / Done ...) instead of always
+     * sending KEYCODE_ENTER, which did nothing useful in search and URL fields.
+     */
+    private fun performEnterAction() {
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo
+        val imeOptions = info?.imeOptions ?: 0
+        val action = imeOptions and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
+        val supportsEditorAction =
+            imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_ENTER_ACTION == 0
+
+        val handled = supportsEditorAction && when (action) {
+            android.view.inputmethod.EditorInfo.IME_ACTION_GO,
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH,
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEND,
+            android.view.inputmethod.EditorInfo.IME_ACTION_NEXT,
+            android.view.inputmethod.EditorInfo.IME_ACTION_DONE,
+            android.view.inputmethod.EditorInfo.IME_ACTION_PREVIOUS -> ic.performEditorAction(action)
+
+            else -> false
+        }
+
+        if (!handled) {
+            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+        }
+    }
+
     override fun onDestroy() {
         try {
             getSharedPreferences("smart_keyboard_theme_prefs", Context.MODE_PRIVATE)
@@ -551,6 +609,7 @@ fun SmartKeyboardView(
     initialMode: KeyboardMode = KeyboardMode.ALPHA,
     customAutoTextEntries: List<AutoTextEntry>? = null,
     composingWord: String = "",
+    isSensitiveInput: Boolean = false,
     onKeyPress: (String) -> Unit,
     onBackspace: (Boolean) -> Unit,
     onBackspaceComplete: () -> Unit = {},
@@ -592,15 +651,7 @@ fun SmartKeyboardView(
             e.printStackTrace()
         }
         if (list.isEmpty()) {
-            list.addAll(
-                listOf(
-                    AutoTextEntry(shortcut = "thx", fullText = "Terima kasih atas informasinya! 🙏"),
-                    AutoTextEntry(shortcut = "alamat", fullText = "Jl. Sudirman No. 123, Jakarta Selatan"),
-                    AutoTextEntry(shortcut = "email", fullText = "rafael.aryanto@gmail.com"),
-                    AutoTextEntry(shortcut = "halo", fullText = "Halo! Terima kasih sudah menghubungi."),
-                    AutoTextEntry(shortcut = "repo", fullText = "https://github.com/ekofebri01/SmartKeyboardPro")
-                )
-            )
+            list.addAll(DefaultAutoTexts)
         }
         list
     }
@@ -610,8 +661,8 @@ fun SmartKeyboardView(
     var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var matchingAutoTexts by remember { mutableStateOf<List<AutoTextEntry>>(emptyList()) }
 
-    LaunchedEffect(composingWord, config.showSuggestionBar, dictRevision, autoTextEntries) {
-        if (!config.showSuggestionBar || composingWord.isEmpty()) {
+    LaunchedEffect(composingWord, config.showSuggestionBar, dictRevision, autoTextEntries, isSensitiveInput) {
+        if (isSensitiveInput || !config.showSuggestionBar || composingWord.isEmpty()) {
             suggestions = emptyList()
             matchingAutoTexts = emptyList()
             return@LaunchedEffect
@@ -770,7 +821,7 @@ fun SmartKeyboardView(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // Suggestion Bar (Kamus Pribadi & Auto Text Expander & Persistent Settings)
-            if (config.showSuggestionBar && mode == KeyboardMode.ALPHA) {
+            if (config.showSuggestionBar && mode == KeyboardMode.ALPHA && !isSensitiveInput) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()

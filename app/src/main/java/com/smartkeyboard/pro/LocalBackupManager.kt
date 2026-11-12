@@ -3,7 +3,6 @@ package com.smartkeyboard.pro
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Environment
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import org.json.JSONArray
@@ -89,39 +88,31 @@ object LocalBackupManager {
      * Resolves or creates the target backup directory on device.
      */
     fun getOrCreateBackupDirectory(context: Context): File {
-        val externalStorage = Environment.getExternalStorageDirectory()
-        val primaryDir = File(externalStorage, BACKUP_FOLDER_NAME)
+        // Scoped storage: the previous implementation tried
+        // Environment.getExternalStorageDirectory()/DIRECTORY_DOCUMENTS, which silently
+        // fails on Android 10+ because the app declares no storage permission. Only
+        // app-private locations are used here; arbitrary user folders go through SAF.
+        val externalAppDir = context.getExternalFilesDir(null)
+        val candidates = listOfNotNull(
+            externalAppDir?.let { File(it, BACKUP_FOLDER_NAME) },
+            File(context.filesDir, BACKUP_FOLDER_NAME)
+        )
 
-        try {
-            if (!primaryDir.exists()) {
-                val created = primaryDir.mkdirs()
-                Log.i(TAG, "Primary dir created ($created): ${primaryDir.absolutePath}")
+        candidates.forEach { dir ->
+            try {
+                if (!dir.exists()) {
+                    val created = dir.mkdirs()
+                    Log.i(TAG, "Backup dir created ($created): ${dir.absolutePath}")
+                }
+                if (dir.exists() && dir.canWrite()) {
+                    return dir
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to create/write backup directory ${dir.absolutePath}: ${e.message}")
             }
-            if (primaryDir.exists() && primaryDir.canWrite()) {
-                return primaryDir
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to create/write to primary directory: ${e.message}")
         }
 
-        try {
-            val docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-            val secondaryDir = File(docsDir, BACKUP_FOLDER_NAME)
-            if (!secondaryDir.exists()) {
-                secondaryDir.mkdirs()
-            }
-            if (secondaryDir.exists()) {
-                return secondaryDir
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed secondary directory creation: ${e.message}")
-        }
-
-        val fallbackDir = File(context.getExternalFilesDir(null), BACKUP_FOLDER_NAME)
-        if (!fallbackDir.exists()) {
-            fallbackDir.mkdirs()
-        }
-        return fallbackDir
+        return File(context.filesDir, BACKUP_FOLDER_NAME)
     }
 
     /**
@@ -246,113 +237,96 @@ object LocalBackupManager {
     }
 
     /**
-     * Restores configuration, dictionary, and snippets from a local JSON string or Uri/File.
+     * Parses a stored theme block into a [ThemeConfig].
+     *
+     * Single source of truth for backup JSON -> ThemeConfig mapping, so local restore,
+     * cloud restore and JSON import can no longer drift apart.
      */
-    fun restoreFromJsonContent(
-        context: Context,
-        jsonContent: String,
-        sourceName: String,
-        onRestoreTheme: (ThemeConfig) -> Unit,
-        onRestoreDictionaryWord: (String) -> Unit,
-        onRestoreSnippet: (String) -> Unit
-    ): Pair<Boolean, String> {
-        return try {
-            val root = JSONObject(jsonContent)
-            var itemCount = 0
-
-            // Restore theme
-            if (root.has("themeConfig")) {
-                val obj = root.getJSONObject("themeConfig")
-                val themeId = obj.optString("themeId", "midnight")
-                val radius = obj.optInt("cornerRadiusDp", 8)
-                val opacity = obj.optDouble("keyOpacity", 0.9).toFloat()
-                val height = obj.optInt("keyHeightDp", 44)
-                val shape = obj.optString("keyShapeStyle", "rounded")
-                val sound = obj.optBoolean("soundEnabled", true)
-                val vib = obj.optBoolean("vibrationEnabled", true)
-                val numRow = obj.optBoolean("showNumberRow", true)
-                val keySym = obj.optBoolean("showKeySymbols", true)
-                val longSym = obj.optBoolean("enableLongPressSymbols", true)
-                val sug = obj.optBoolean("showSuggestionBar", true)
-                val space = obj.optBoolean("autoSpaceAfterWord", true)
-
-                val restoredConfig = ThemeConfig(
-                    themeId = themeId,
-                    cornerRadiusDp = radius,
-                    keyOpacity = opacity,
-                    keyHeightDp = height,
-                    keyShapeStyle = shape,
-                    soundEnabled = sound,
-                    vibrationEnabled = vib,
-                    showNumberRow = numRow,
-                    showKeySymbols = keySym,
-                    enableLongPressSymbols = longSym,
-                    showSuggestionBar = sug,
-                    autoSpaceAfterWord = space
-                )
-                onRestoreTheme(restoredConfig)
-                itemCount++
-            }
-
-            // Restore dictionary
-            if (root.has("learnedWords")) {
-                val array = root.getJSONArray("learnedWords")
-                for (i in 0 until array.length()) {
-                    val wObj = array.getJSONObject(i)
-                    val w = wObj.getString("word")
-                    onRestoreDictionaryWord(w)
-                    itemCount++
-                }
-            }
-
-            // Restore snippets
-            if (root.has("clipboardSnippets")) {
-                val array = root.getJSONArray("clipboardSnippets")
-                for (i in 0 until array.length()) {
-                    val snippet = array.getString(i)
-                    onRestoreSnippet(snippet)
-                    itemCount++
-                }
-            }
-
-            Pair(true, "Restore lokal berhasil! ($itemCount item & setting dipulihkan dari $sourceName)")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing json content from $sourceName", e)
-            Pair(false, "Gagal memulihkan file backup: ${e.localizedMessage ?: e.message}")
-        }
+    fun themeConfigFromJson(obj: JSONObject, base: ThemeConfig = ThemeConfig()): ThemeConfig {
+        return base.copy(
+            themeId = obj.optString("themeId", base.themeId),
+            cornerRadiusDp = obj.optInt("cornerRadiusDp", base.cornerRadiusDp),
+            keyOpacity = obj.optDouble("keyOpacity", base.keyOpacity.toDouble()).toFloat(),
+            keyHeightDp = obj.optInt("keyHeightDp", base.keyHeightDp),
+            keyShapeStyle = obj.optString("keyShapeStyle", base.keyShapeStyle),
+            soundEnabled = obj.optBoolean("soundEnabled", base.soundEnabled),
+            vibrationEnabled = obj.optBoolean("vibrationEnabled", base.vibrationEnabled),
+            showNumberRow = obj.optBoolean("showNumberRow", base.showNumberRow),
+            showKeySymbols = obj.optBoolean("showKeySymbols", base.showKeySymbols),
+            enableLongPressSymbols = obj.optBoolean("enableLongPressSymbols", base.enableLongPressSymbols),
+            showSuggestionBar = obj.optBoolean("showSuggestionBar", base.showSuggestionBar),
+            autoSpaceAfterWord = obj.optBoolean("autoSpaceAfterWord", base.autoSpaceAfterWord)
+        )
     }
 
     /**
-     * Reads JSON from LocalBackupFileInfo (either File or Uri) and restores.
+     * Reads and parses a backup file. Pure file I/O, safe to call from Dispatchers.IO.
      */
-    fun restoreFromBackupInfo(
-        context: Context,
-        info: LocalBackupFileInfo,
-        onRestoreTheme: (ThemeConfig) -> Unit,
-        onRestoreDictionaryWord: (String) -> Unit,
-        onRestoreSnippet: (String) -> Unit
-    ): Pair<Boolean, String> {
-        val jsonString = if (info.uri != null) {
-            try {
-                context.contentResolver.openInputStream(info.uri)?.use { stream ->
+    fun readBackupFile(context: Context, info: LocalBackupFileInfo): LocalRestoreResult {
+        val jsonString = try {
+            when {
+                info.uri != null -> context.contentResolver.openInputStream(info.uri)?.use { stream ->
                     stream.bufferedReader().use { it.readText() }
-                } ?: return Pair(false, "Tidak dapat membuka stream dari URI.")
-            } catch (e: Exception) {
-                return Pair(false, "Gagal membaca file dari URI: ${e.message}")
-            }
-        } else if (info.file != null && info.file.exists()) {
-            info.file.readText()
-        } else {
-            return Pair(false, "Source backup tidak ditemukan.")
-        }
+                } ?: return LocalRestoreResult.Error("Tidak dapat membuka stream dari URI.")
 
-        return restoreFromJsonContent(
-            context = context,
-            jsonContent = jsonString,
-            sourceName = info.fileName,
-            onRestoreTheme = onRestoreTheme,
-            onRestoreDictionaryWord = onRestoreDictionaryWord,
-            onRestoreSnippet = onRestoreSnippet
-        )
+                info.file != null && info.file.exists() -> info.file.readText()
+                else -> return LocalRestoreResult.Error("Source backup tidak ditemukan.")
+            }
+        } catch (e: Exception) {
+            return LocalRestoreResult.Error("Gagal membaca file backup: ${e.localizedMessage ?: e.message}")
+        }
+        return parseBackupJson(jsonString)
     }
+
+    /**
+     * Parses backup JSON. Pure parsing, safe to call from a background thread.
+     */
+    fun parseBackupJson(jsonContent: String): LocalRestoreResult {
+        return try {
+            val root = JSONObject(jsonContent)
+
+            val themeConfig = if (root.has("themeConfig")) {
+                themeConfigFromJson(root.getJSONObject("themeConfig"))
+            } else {
+                null
+            }
+
+            val learnedWords = mutableListOf<String>()
+            if (root.has("learnedWords")) {
+                val array = root.getJSONArray("learnedWords")
+                for (i in 0 until array.length()) {
+                    learnedWords.add(array.getJSONObject(i).getString("word"))
+                }
+            }
+
+            val snippets = mutableListOf<String>()
+            if (root.has("clipboardSnippets")) {
+                val array = root.getJSONArray("clipboardSnippets")
+                for (i in 0 until array.length()) {
+                    snippets.add(array.getString(i))
+                }
+            }
+
+            LocalRestoreResult.Success(ParsedBackup(themeConfig, learnedWords, snippets))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing backup json", e)
+            LocalRestoreResult.Error("Gagal memulihkan file backup: ${e.localizedMessage ?: e.message}")
+        }
+    }
+}
+
+/** Content of a parsed local backup file. */
+data class ParsedBackup(
+    val themeConfig: ThemeConfig? = null,
+    val learnedWords: List<String> = emptyList(),
+    val snippets: List<String> = emptyList()
+) {
+    val itemCount: Int
+        get() = learnedWords.size + snippets.size + if (themeConfig != null) 1 else 0
+}
+
+/** Result of reading/parsing a local backup file. */
+sealed class LocalRestoreResult {
+    data class Success(val backup: ParsedBackup) : LocalRestoreResult()
+    data class Error(val message: String) : LocalRestoreResult()
 }

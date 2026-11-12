@@ -84,3 +84,15 @@ data class AutoTextEntry(
         }
     }
 }
+
+/**
+ * Starter auto-text shortcuts shipped with the app.
+ *
+ * Never put real personal data (e-mail addresses, home addresses, phone numbers) in
+ * this list: every installation starts with these entries.
+ */
+val DefaultAutoTexts: List<AutoTextEntry> = listOf(
+    AutoTextEntry(shortcut = "thx", fullText = "Terima kasih atas informasinya! 🙏"),
+    AutoTextEntry(shortcut = "halo", fullText = "Halo! Ada yang bisa saya bantu?"),
+    AutoTextEntry(shortcut = "repo", fullText = "https://github.com/ekofebri01/SmartKeyboardPro")
+)

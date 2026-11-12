@@ -17,3 +17,16 @@ local.properties
 debug.keystore
 .build-outputs/
 .apk
+
+# Signing material and release artifacts must never be committed.
+*.jks
+*.keystore
+keystore.properties
+my-upload-key.base64.txt
+SmartKeyboardPro-*.apk
+
+# Firebase config is supplied locally (contains project-specific client IDs).
+app/google-services.json
+
+# Local build toolchain used for verification in CI/sandboxes.
+.toolchain/

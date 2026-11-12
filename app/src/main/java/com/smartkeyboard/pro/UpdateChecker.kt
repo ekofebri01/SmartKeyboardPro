@@ -2,6 +2,7 @@ package com.smartkeyboard.pro
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -170,7 +171,9 @@ object UpdateChecker {
             var currentUrl = downloadUrl
             var redirects = 0
             while (redirects < 5) {
-                val url = URL(currentUrl)
+                // Only HTTPS is accepted: a plain HTTP hop would let an on-path attacker
+                // replace the package before the user installs it.
+                val url = requireHttpsUrl(currentUrl)
                 connection = (url.openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = true
                     setRequestProperty("User-Agent", "SmartKeyboardPro-Android")
@@ -195,7 +198,18 @@ object UpdateChecker {
             }
 
             val finalConnection = connection ?: throw IllegalStateException("Could not establish connection.")
+
+            val contentType = finalConnection.contentType ?: ""
+            if (contentType.contains("text/html", ignoreCase = true)) {
+                onProgress(DownloadState.Error("Server mengembalikan halaman HTML, bukan berkas APK."))
+                return@withContext
+            }
+
             val totalBytes = finalConnection.contentLength.toLong()
+            if (totalBytes in 1..MIN_APK_BYTES) {
+                onProgress(DownloadState.Error("Ukuran berkas APK tidak wajar ($totalBytes byte)."))
+                return@withContext
+            }
 
             inputStream = finalConnection.inputStream
             outputStream = FileOutputStream(apkFile)
@@ -236,6 +250,7 @@ object UpdateChecker {
     fun installApk(context: Context, apkFile: File): Boolean {
         return try {
             if (!apkFile.exists()) return false
+            if (verifyApkSignature(context, apkFile) != null) return false
 
             // Check if unknown sources install permission is required (Android 8.0+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -267,6 +282,98 @@ object UpdateChecker {
             e.printStackTrace()
             false
         }
+    }
+
+    private const val MIN_APK_BYTES = 1_000_000L
+
+    private fun requireHttpsUrl(rawUrl: String): URL {
+        val url = URL(rawUrl)
+        if (!url.protocol.equals("https", ignoreCase = true)) {
+            throw SecurityException("Menolak URL update non-HTTPS (${url.protocol}).")
+        }
+        return url
+    }
+
+    /**
+     * Verifies that a downloaded file really is an update of this app: same package name,
+     * a strictly higher versionCode and signed with exactly the same certificate as the
+     * installed app.
+     *
+     * @return null when the APK is safe to install, otherwise a human readable reason.
+     */
+    fun verifyApkSignature(context: Context, apkFile: File): String? {
+        if (!apkFile.exists() || apkFile.length() < MIN_APK_BYTES) {
+            return "Berkas APK tidak valid atau tidak lengkap."
+        }
+
+        return try {
+            val packageManager = context.packageManager
+            val flags = PackageManager.GET_SIGNING_CERTIFICATES
+
+            val archiveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageArchiveInfo(
+                    apkFile.absolutePath,
+                    PackageManager.PackageInfoFlags.of(flags.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageArchiveInfo(apkFile.absolutePath, flags)
+            } ?: return "Berkas APK tidak dapat dibaca sebagai paket Android."
+
+            if (archiveInfo.packageName != context.packageName) {
+                return "APK berasal dari paket lain (${archiveInfo.packageName})."
+            }
+
+            val installedInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    context.packageName,
+                    PackageManager.PackageInfoFlags.of(flags.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(context.packageName, flags)
+            }
+
+            if (archiveInfo.longVersionCode <= installedInfo.longVersionCode) {
+                return "Versi APK (${archiveInfo.longVersionCode}) tidak lebih baru dari versi terpasang " +
+                    "(${installedInfo.longVersionCode})."
+            }
+
+            val archiveSigners = signerDigests(archiveInfo)
+            val installedSigners = signerDigests(installedInfo)
+            if (archiveSigners.isEmpty()) return "APK tidak memiliki tanda tangan."
+            if (installedSigners.isEmpty()) return "Tanda tangan aplikasi terpasang tidak dapat dibaca."
+            if (installedSigners.any { signer -> signer !in archiveSigners }) {
+                return "Tanda tangan APK tidak cocok dengan aplikasi terpasang. Update dibatalkan."
+            }
+
+            null
+        } catch (e: Exception) {
+            "Gagal memverifikasi APK: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    private fun signerDigests(info: android.content.pm.PackageInfo): Set<String> {
+        val signatures = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                info.signingInfo?.apkContentsSigners
+            } else {
+                @Suppress("DEPRECATION")
+                info.signatures
+            }
+        } catch (e: Exception) {
+            null
+        } ?: return emptySet()
+
+        return signatures.mapNotNull { signature ->
+            try {
+                java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(signature.toByteArray())
+                    .joinToString("") { byte -> "%02x".format(byte) }
+            } catch (e: Exception) {
+                null
+            }
+        }.toSet()
     }
 
     fun cleanupUpdateFiles(context: Context) {

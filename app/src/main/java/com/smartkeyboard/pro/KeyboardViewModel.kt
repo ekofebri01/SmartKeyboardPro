@@ -10,8 +10,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class KeyboardViewModel(application: Application) : AndroidViewModel(application) {
@@ -48,7 +50,12 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
     var learnedWords by mutableStateOf<List<DictionaryEntry>>(emptyList())
         private set
 
-    private val repo = PersonalDictionaryRepository(context, com.google.firebase.auth.FirebaseAuth.getInstance(), com.google.firebase.firestore.FirebaseFirestore.getInstance(context.getString(R.string.firestore_database_id)))
+    private val repo = PersonalDictionaryRepository(
+        auth = com.google.firebase.auth.FirebaseAuth.getInstance(),
+        firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance(
+            context.getString(R.string.firestore_database_id)
+        )
+    )
     private val autoTextRepo = AutoTextRepository(context)
 
     var isSyncingAutoText by mutableStateOf(false)
@@ -57,15 +64,21 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         private set
 
     init {
-        // Clean up any stale update files on launch
-        UpdateChecker.cleanupUpdateFiles(context)
         PersonalDictionary.load(context)
         refreshLearnedWords()
         loadAutoTextItems()
-        
+
         viewModelScope.launch {
-            val cloudWords = repo.fetchLearnedWords()
-            // In a real app, we would merge cloud and local here.
+            // File cleanup and the cloud merge are blocking I/O, so they run off the UI thread.
+            withContext(Dispatchers.IO) { UpdateChecker.cleanupUpdateFiles(context) }
+
+            val cloudWords = withContext(Dispatchers.IO) { repo.fetchLearnedWords() }
+            if (cloudWords.isNotEmpty()) {
+                withContext(Dispatchers.IO) {
+                    PersonalDictionary.mergeCloudWords(context, cloudWords)
+                }
+                refreshLearnedWords()
+            }
         }
     }
 
@@ -102,15 +115,9 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
                 }
             }
             if (autoTextEntries.isEmpty()) {
-                autoTextEntries.addAll(
-                    listOf(
-                        AutoTextEntry(shortcut = "thx", fullText = "Terima kasih atas informasinya! 🙏"),
-                        AutoTextEntry(shortcut = "alamat", fullText = "Jl. Sudirman No. 123, Jakarta Selatan"),
-                        AutoTextEntry(shortcut = "email", fullText = "rafael.aryanto@gmail.com"),
-                        AutoTextEntry(shortcut = "halo", fullText = "Halo! Terima kasih sudah menghubungi."),
-                        AutoTextEntry(shortcut = "repo", fullText = "https://github.com/ekofebri01/SmartKeyboardPro")
-                    )
-                )
+                // Shared starter list (see DefaultAutoTexts). It used to contain a real
+                // personal e-mail address and street address that shipped to every user.
+                autoTextEntries.addAll(DefaultAutoTexts)
                 saveAutoTextItems()
             } else {
                 clipboardItems.clear()
@@ -193,13 +200,18 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
 
     fun applyCustomImage(uri: Uri) {
         viewModelScope.launch {
-            val savedPath = ThemeManager.saveCustomImageFromUri(context, uri)
-            if (savedPath != null) {
+            // Decoding + re-encoding the picked photo is heavy; keep it off the main thread.
+            val saved = withContext(Dispatchers.IO) {
+                val path = ThemeManager.saveCustomImageFromUri(context, uri)
+                path?.let { it to ThemeManager.loadCustomImageBitmap(it) }
+            }
+            if (saved != null) {
+                val (savedPath, bitmap) = saved
                 val newConfig = themeConfig.copy(
                     customImagePath = savedPath
                 )
                 themeConfig = newConfig
-                customImageBitmap = ThemeManager.loadCustomImageBitmap(savedPath)
+                customImageBitmap = bitmap
                 ThemeManager.saveConfig(context, newConfig)
             }
         }
@@ -466,6 +478,15 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun installUpdate(apkFile: File): Boolean {
+        // Never hand an unverified package to the installer: require the same package name,
+        // a higher versionCode and the exact certificate of the installed app.
+        val verificationError = UpdateChecker.verifyApkSignature(context, apkFile)
+        if (verificationError != null) {
+            downloadState = DownloadState.Error(verificationError)
+            UpdateChecker.cleanupUpdateFiles(context)
+            return false
+        }
+
         val launched = UpdateChecker.installApk(context, apkFile)
         if (launched) {
             viewModelScope.launch {
@@ -561,44 +582,26 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         return try {
             if (item.themeConfigJson.isNotBlank()) {
                 val obj = org.json.JSONObject(item.themeConfigJson)
-                val themeId = obj.optString("themeId", "midnight")
-                val radius = obj.optInt("cornerRadiusDp", 8)
-                val opacity = obj.optDouble("keyOpacity", 0.9).toFloat()
-                val height = obj.optInt("keyHeightDp", 44)
-                val shape = obj.optString("keyShapeStyle", "rounded")
-                val sound = obj.optBoolean("soundEnabled", true)
-                val vib = obj.optBoolean("vibrationEnabled", true)
-                val numRow = obj.optBoolean("showNumberRow", true)
-                val keySym = obj.optBoolean("showKeySymbols", true)
-                val longSym = obj.optBoolean("enableLongPressSymbols", true)
-                val sug = obj.optBoolean("showSuggestionBar", true)
-                val space = obj.optBoolean("autoSpaceAfterWord", true)
-
-                val newConfig = themeConfig.copy(
-                    themeId = themeId,
-                    cornerRadiusDp = radius,
-                    keyOpacity = opacity,
-                    keyHeightDp = height,
-                    keyShapeStyle = shape,
-                    soundEnabled = sound,
-                    vibrationEnabled = vib,
-                    showNumberRow = numRow,
-                    showKeySymbols = keySym,
-                    enableLongPressSymbols = longSym,
-                    showSuggestionBar = sug,
-                    autoSpaceAfterWord = space
-                )
+                val newConfig = LocalBackupManager.themeConfigFromJson(obj, themeConfig)
                 themeConfig = newConfig
                 ThemeManager.saveConfig(context, newConfig)
             }
 
             if (item.learnedWordsJson.isNotBlank()) {
                 val array = org.json.JSONArray(item.learnedWordsJson)
-                for (i in 0 until array.length()) {
-                    val wObj = array.getJSONObject(i)
-                    val w = wObj.getString("word")
-                    PersonalDictionary.learnWord(context, w)
+                val cloudWords = buildList {
+                    for (i in 0 until array.length()) {
+                        val wObj = array.getJSONObject(i)
+                        add(
+                            DictionaryEntry(
+                                word = wObj.getString("word"),
+                                frequency = wObj.optInt("frequency", 1)
+                            )
+                        )
+                    }
                 }
+                // A restore is user initiated, so it must not depend on the auto-learn flag.
+                PersonalDictionary.mergeCloudWords(context, cloudWords)
                 refreshLearnedWords()
             }
 
@@ -646,66 +649,33 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun importFromJsonString(jsonString: String): Boolean {
-        return try {
-            val root = org.json.JSONObject(jsonString)
-            if (root.has("themeConfig")) {
-                val obj = root.getJSONObject("themeConfig")
-                val themeId = obj.optString("themeId", "midnight")
-                val radius = obj.optInt("cornerRadiusDp", 8)
-                val opacity = obj.optDouble("keyOpacity", 0.9).toFloat()
-                val height = obj.optInt("keyHeightDp", 44)
-                val shape = obj.optString("keyShapeStyle", "rounded")
-                val sound = obj.optBoolean("soundEnabled", true)
-                val vib = obj.optBoolean("vibrationEnabled", true)
-                val numRow = obj.optBoolean("showNumberRow", true)
-                val keySym = obj.optBoolean("showKeySymbols", true)
-                val longSym = obj.optBoolean("enableLongPressSymbols", true)
-                val sug = obj.optBoolean("showSuggestionBar", true)
-                val space = obj.optBoolean("autoSpaceAfterWord", true)
-
-                val newConfig = themeConfig.copy(
-                    themeId = themeId,
-                    cornerRadiusDp = radius,
-                    keyOpacity = opacity,
-                    keyHeightDp = height,
-                    keyShapeStyle = shape,
-                    soundEnabled = sound,
-                    vibrationEnabled = vib,
-                    showNumberRow = numRow,
-                    showKeySymbols = keySym,
-                    enableLongPressSymbols = longSym,
-                    showSuggestionBar = sug,
-                    autoSpaceAfterWord = space
-                )
-                themeConfig = newConfig
-                ThemeManager.saveConfig(context, newConfig)
+        return when (val parsed = LocalBackupManager.parseBackupJson(jsonString)) {
+            is LocalRestoreResult.Error -> {
+                cloudSyncStatus = parsed.message
+                false
             }
 
-            if (root.has("learnedWords")) {
-                val array = root.getJSONArray("learnedWords")
-                for (i in 0 until array.length()) {
-                    val wObj = array.getJSONObject(i)
-                    val w = wObj.getString("word")
-                    PersonalDictionary.learnWord(context, w)
-                }
-                refreshLearnedWords()
+            is LocalRestoreResult.Success -> {
+                applyParsedBackup(parsed.backup)
+                cloudSyncStatus = "Restore dari file local JSON berhasil!"
+                true
             }
-
-            if (root.has("clipboardSnippets")) {
-                val array = root.getJSONArray("clipboardSnippets")
-                for (i in 0 until array.length()) {
-                    val snippet = array.getString(i)
-                    addClipboardItem(snippet)
-                }
-            }
-
-            cloudSyncStatus = "Restore dari file local JSON berhasil!"
-            true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            cloudSyncStatus = "File JSON tidak valid: ${e.message}"
-            false
         }
+    }
+
+    private fun applyParsedBackup(backup: ParsedBackup) {
+        backup.themeConfig?.let { restored ->
+            themeConfig = restored
+            ThemeManager.saveConfig(context, restored)
+        }
+        if (backup.learnedWords.isNotEmpty()) {
+            PersonalDictionary.mergeCloudWords(
+                context,
+                backup.learnedWords.map { word -> DictionaryEntry(word = word) }
+            )
+            refreshLearnedWords()
+        }
+        backup.snippets.forEach { snippet -> addClipboardItem(snippet) }
     }
 
     var localBackupStatusMessage by mutableStateOf<String?>(null)
@@ -713,16 +683,34 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
     var localBackupFilesList by mutableStateOf<List<LocalBackupFileInfo>>(emptyList())
         private set
 
-    fun performLocalFolderBackup(): LocalBackupStatus {
-        val json = exportToJsonString()
-        val status = LocalBackupManager.performAutoBackup(context, json)
-        localBackupStatusMessage = status.message
-        refreshLocalBackupFiles()
-        return status
+    var isPerformingLocalBackup by mutableStateOf(false)
+        private set
+
+    /**
+     * Writes the backup and rescans the folder off the UI thread; the previous version
+     * did blocking file I/O directly inside a Compose onClick.
+     */
+    fun performLocalFolderBackup(onResult: ((LocalBackupStatus) -> Unit)? = null) {
+        if (isPerformingLocalBackup) return
+        isPerformingLocalBackup = true
+        viewModelScope.launch {
+            val status = withContext(Dispatchers.IO) {
+                val json = exportToJsonString()
+                LocalBackupManager.performAutoBackup(context, json)
+            }
+            localBackupStatusMessage = status.message
+            isPerformingLocalBackup = false
+            refreshLocalBackupFiles()
+            onResult?.invoke(status)
+        }
     }
 
     fun refreshLocalBackupFiles() {
-        localBackupFilesList = LocalBackupManager.getAvailableBackupFiles(context)
+        viewModelScope.launch {
+            localBackupFilesList = withContext(Dispatchers.IO) {
+                LocalBackupManager.getAvailableBackupFiles(context)
+            }
+        }
     }
 
     fun savePersistedFolderUri(uri: android.net.Uri): Boolean {
@@ -744,25 +732,26 @@ class KeyboardViewModel(application: Application) : AndroidViewModel(application
         refreshLocalBackupFiles()
     }
 
-    fun restoreFromLocalBackupInfo(info: LocalBackupFileInfo): Boolean {
-        val (ok, msg) = LocalBackupManager.restoreFromBackupInfo(
-            context = context,
-            info = info,
-            onRestoreTheme = { restored ->
-                themeConfig = restored
-                ThemeManager.saveConfig(context, restored)
-            },
-            onRestoreDictionaryWord = { word ->
-                PersonalDictionary.learnWord(context, word)
-            },
-            onRestoreSnippet = { snippet ->
-                addClipboardItem(snippet)
+    fun restoreFromLocalBackupInfo(
+        info: LocalBackupFileInfo,
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            // Parse on IO, apply the parsed result on the main thread.
+            when (val parsed = withContext(Dispatchers.IO) { LocalBackupManager.readBackupFile(context, info) }) {
+                is LocalRestoreResult.Error -> {
+                    localBackupStatusMessage = parsed.message
+                    onResult?.invoke(false, parsed.message)
+                }
+
+                is LocalRestoreResult.Success -> {
+                    applyParsedBackup(parsed.backup)
+                    val message = "Restore lokal berhasil! (${parsed.backup.itemCount} item & setting " +
+                        "dipulihkan dari ${info.fileName})"
+                    localBackupStatusMessage = message
+                    onResult?.invoke(true, message)
+                }
             }
-        )
-        if (ok) {
-            refreshLearnedWords()
         }
-        localBackupStatusMessage = msg
-        return ok
     }
 }

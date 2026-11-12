@@ -5,4 +5,4 @@ Release v1.4.2:
 - Tombol Backspace langsung di baris emoji untuk koreksi cepat.
 - Ikon tombol Enter diperbesar dan dipertajam menggunakan vektor panah return resolusi tinggi 24dp bergaris tebal 2.8dp.
 - Optimalisasi akses tombol menu pengaturan pada berbagai tema tekstur latar belakang keyboard.
-- Kompatibilitas tanda tangan rilis konsisten menggunakan my-upload-key.jks.
+- Kompatibilitas tanda tangan rilis konsisten.

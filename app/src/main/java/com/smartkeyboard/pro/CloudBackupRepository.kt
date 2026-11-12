@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
@@ -46,6 +47,24 @@ class CloudBackupRepository(
     private fun getUid(): String? = auth.currentUser?.uid
 
     /**
+     * Runs Firestore writes in chunks of [MAX_BATCH_OPERATIONS].
+     *
+     * The previous implementation awaited one write per document, which meant one network
+     * round-trip per dictionary word and made a large dictionary time out.
+     */
+    private suspend fun commitBatched(operations: List<(WriteBatch) -> Unit>) {
+        operations.chunked(MAX_BATCH_OPERATIONS).forEach { chunk ->
+            val batch = firestore.batch()
+            chunk.forEach { operation -> operation(batch) }
+            batch.commit().await()
+        }
+    }
+
+    private companion object {
+        const val MAX_BATCH_OPERATIONS = 400
+    }
+
+    /**
      * Synchronizes current local settings, dictionary, and clipboard directly to live Firestore document collections.
      */
     suspend fun syncAllToCloud(
@@ -80,42 +99,75 @@ class CloudBackupRepository(
                 "updatedAt" to FieldValue.serverTimestamp(),
                 "deviceName" to Build.MODEL
             )
-            userDocRef.collection("settings").document("current").set(settingsMap).await()
+            val operations = mutableListOf<(WriteBatch) -> Unit>()
 
-            // 2. Sync Personal Dictionary words to /users/{uid}/learned_words/{word}
+            // 1. Theme settings -> /users/{uid}/settings/current
+            operations.add { batch ->
+                batch.set(userDocRef.collection("settings").document("current"), settingsMap)
+            }
+
+            // 2. Personal dictionary -> /users/{uid}/learned_words/{word}
+            val learnedWordsCollection = userDocRef.collection("learned_words")
+            val existingWordIds = learnedWordsCollection.get().await().documents.map { it.id }.toSet()
+            val currentWordIds = learnedWords.map { it.word }.toSet()
             learnedWords.forEach { entry ->
-                userDocRef.collection("learned_words").document(entry.word).set(
-                    mapOf(
-                        "word" to entry.word,
-                        "frequency" to entry.frequency,
-                        "lastUsed" to FieldValue.serverTimestamp()
+                operations.add { batch ->
+                    batch.set(
+                        learnedWordsCollection.document(entry.word),
+                        mapOf(
+                            "word" to entry.word,
+                            "frequency" to entry.frequency,
+                            "lastUsed" to FieldValue.serverTimestamp()
+                        )
                     )
-                ).await()
+                }
+            }
+            (existingWordIds - currentWordIds).forEach { staleWord ->
+                operations.add { batch -> batch.delete(learnedWordsCollection.document(staleWord)) }
             }
 
-            // 3. Sync Clipboard Snippets to /users/{uid}/snippets/{snippetId}
+            // 3. Clipboard snippets -> /users/{uid}/snippets/{snippetId}
+            val snippetsCollection = userDocRef.collection("snippets")
+            val existingSnippetIds = snippetsCollection.get().await().documents.map { it.id }.toSet()
+            val currentSnippetIds = snippets.indices.map { "snippet_$it" }.toSet()
             snippets.forEachIndexed { idx, snippet ->
-                val snippetId = "snippet_$idx"
-                userDocRef.collection("snippets").document(snippetId).set(
-                    mapOf(
-                        "content" to snippet,
-                        "updatedAt" to FieldValue.serverTimestamp()
+                operations.add { batch ->
+                    batch.set(
+                        snippetsCollection.document("snippet_$idx"),
+                        mapOf(
+                            "content" to snippet,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
                     )
-                ).await()
+                }
+            }
+            (existingSnippetIds - currentSnippetIds).forEach { staleSnippet ->
+                operations.add { batch -> batch.delete(snippetsCollection.document(staleSnippet)) }
             }
 
-            // 4. Sync Auto-Text shortcuts to /users/{uid}/auto_text_shortcuts/{shortcutId}
+            // 4. Auto-text shortcuts -> /users/{uid}/auto_text_shortcuts/{shortcutId}
+            val autoTextCollection = userDocRef.collection("auto_text_shortcuts")
+            val existingAutoTextIds = autoTextCollection.get().await().documents.map { it.id }.toSet()
+            val currentAutoTextIds = autoTexts.map { it.id }.toSet()
             autoTexts.forEach { entry ->
-                userDocRef.collection("auto_text_shortcuts").document(entry.id).set(
-                    mapOf(
-                        "id" to entry.id,
-                        "shortcut" to entry.shortcut.trim().lowercase(),
-                        "fullText" to entry.fullText.trim(),
-                        "userId" to uid,
-                        "updatedAt" to FieldValue.serverTimestamp()
+                operations.add { batch ->
+                    batch.set(
+                        autoTextCollection.document(entry.id),
+                        mapOf(
+                            "id" to entry.id,
+                            "shortcut" to entry.shortcut.trim().lowercase(),
+                            "fullText" to entry.fullText.trim(),
+                            "userId" to uid,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
                     )
-                ).await()
+                }
             }
+            (existingAutoTextIds - currentAutoTextIds).forEach { staleAutoText ->
+                operations.add { batch -> batch.delete(autoTextCollection.document(staleAutoText)) }
+            }
+
+            commitBatched(operations)
 
             true
         } catch (e: Exception) {

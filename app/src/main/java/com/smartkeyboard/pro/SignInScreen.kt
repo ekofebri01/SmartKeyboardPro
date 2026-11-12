@@ -249,7 +249,9 @@ fun signInWithGoogle(
 
             if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
+                // Firebase validates the nonce against the raw value that produced it,
+                // so the unhashed nonce must be forwarded here.
+                val authCredential = GoogleAuthProvider.getCredential(googleIdToken, rawNonce)
                 AuthDiagnosticLogger.logAuthEvent("Google ID Token received, signing into Firebase Auth")
                 val authResult = Firebase.auth.signInWithCredential(authCredential).await()
                 AuthDiagnosticLogger.logAuthEvent("Firebase Auth Success", "User ID: ${authResult.user?.uid}, Email: ${authResult.user?.email}")
@@ -276,7 +278,9 @@ fun signInWithGoogle(
 
                 if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                     val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                    val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
+                    // Firebase validates the nonce against the raw value that produced it,
+                // so the unhashed nonce must be forwarded here.
+                val authCredential = GoogleAuthProvider.getCredential(googleIdToken, rawNonce)
                     AuthDiagnosticLogger.logAuthEvent("Fallback Google ID Token received, signing into Firebase Auth")
                     val authResult = Firebase.auth.signInWithCredential(authCredential).await()
                     AuthDiagnosticLogger.logAuthEvent("Fallback Firebase Auth Success", "User ID: ${authResult.user?.uid}")

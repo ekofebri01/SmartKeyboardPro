@@ -2080,7 +2080,11 @@ fun GitHubUpdateTab(viewModel: KeyboardViewModel) {
                             onClick = {
                                 val success = viewModel.installUpdate(state.file)
                                 if (!success) {
-                                    Toast.makeText(context, "Please allow 'Install Unknown Apps' for Smart Keyboard Pro", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(
+                                        context,
+                                        "Update could not be installed. Check the verification message below.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
@@ -2227,9 +2231,10 @@ fun PrivacyDashboardTab() {
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 val audits = listOf(
-                    "Zero Keystroke Logging" to "Your typing never leaves your device and is not saved to any remote server.",
-                    "100% On-Device Keyboard Engine" to "The IME typing pipeline runs entirely local without network calls.",
-                    "In-App Updater Transparency" to "Downloads APK packages directly from GitHub releases and automatically deletes the installer after completion to preserve local storage.",
+                    "Zero Keystroke Logging" to "Keystrokes are never logged. Words typed in normal fields are learned into an on-device dictionary; nothing is uploaded unless you press Sync or Backup.",
+                    "Password Fields Are Excluded" to "Password, PIN and no-suggestion fields never feed the dictionary, the suggestion bar or auto-text expansion.",
+                    "100% On-Device Keyboard Engine" to "The IME typing pipeline runs locally; network access is only used for the optional cloud backup and the update check.",
+                    "Verified In-App Updates" to "APKs are downloaded over HTTPS and installed only when the package name, versionCode and signing certificate match this app.",
                     "Zero Trackers & Telemetry" to "No Google Analytics, Firebase Analytics, or third-party SDK trackers."
                 )
 
@@ -2635,9 +2640,11 @@ fun CloudBackupTab(viewModel: KeyboardViewModel) {
 
                 Button(
                     onClick = {
-                        val status = viewModel.performLocalFolderBackup()
-                        Toast.makeText(context, status.message, Toast.LENGTH_LONG).show()
+                        viewModel.performLocalFolderBackup { status ->
+                            Toast.makeText(context, status.message, Toast.LENGTH_LONG).show()
+                        }
                     },
+                    enabled = !viewModel.isPerformingLocalBackup,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -2717,11 +2724,8 @@ fun CloudBackupTab(viewModel: KeyboardViewModel) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Button(
                                         onClick = {
-                                            val ok = viewModel.restoreFromLocalBackupInfo(localFile)
-                                            if (ok) {
-                                                Toast.makeText(context, "Restore lokal berhasil!", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                Toast.makeText(context, "Gagal restore file lokal.", Toast.LENGTH_SHORT).show()
+                                            viewModel.restoreFromLocalBackupInfo(localFile) { _, message ->
+                                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                                             }
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
