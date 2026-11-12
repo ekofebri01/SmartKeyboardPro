@@ -320,10 +320,6 @@ object UpdateChecker {
                 packageManager.getPackageArchiveInfo(apkFile.absolutePath, flags)
             } ?: return "Berkas APK tidak dapat dibaca sebagai paket Android."
 
-            if (archiveInfo.packageName != context.packageName) {
-                return "APK berasal dari paket lain (${archiveInfo.packageName})."
-            }
-
             val installedInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 packageManager.getPackageInfo(
                     context.packageName,
@@ -334,23 +330,49 @@ object UpdateChecker {
                 packageManager.getPackageInfo(context.packageName, flags)
             }
 
-            if (archiveInfo.longVersionCode <= installedInfo.longVersionCode) {
-                return "Versi APK (${archiveInfo.longVersionCode}) tidak lebih baru dari versi terpasang " +
-                    "(${installedInfo.longVersionCode})."
-            }
-
-            val archiveSigners = signerDigests(archiveInfo)
-            val installedSigners = signerDigests(installedInfo)
-            if (archiveSigners.isEmpty()) return "APK tidak memiliki tanda tangan."
-            if (installedSigners.isEmpty()) return "Tanda tangan aplikasi terpasang tidak dapat dibaca."
-            if (installedSigners.any { signer -> signer !in archiveSigners }) {
-                return "Tanda tangan APK tidak cocok dengan aplikasi terpasang. Update dibatalkan."
-            }
-
-            null
+            evaluateApkUpdate(
+                installedPackageName = context.packageName,
+                archivePackageName = archiveInfo.packageName,
+                installedVersionCode = installedInfo.longVersionCode,
+                archiveVersionCode = archiveInfo.longVersionCode,
+                installedSigners = signerDigests(installedInfo),
+                archiveSigners = signerDigests(archiveInfo)
+            )
         } catch (e: Exception) {
             "Gagal memverifikasi APK: ${e.message ?: e.javaClass.simpleName}"
         }
+    }
+
+    /**
+     * Pure decision logic for "is this downloaded package a legitimate update of this app?".
+     *
+     * Kept separate from [verifyApkSignature] so every rejection rule can be unit tested
+     * without a PackageManager or a real APK file.
+     *
+     * @return null when the package is acceptable, otherwise the reason it was rejected.
+     */
+    internal fun evaluateApkUpdate(
+        installedPackageName: String,
+        archivePackageName: String?,
+        installedVersionCode: Long,
+        archiveVersionCode: Long,
+        installedSigners: Set<String>,
+        archiveSigners: Set<String>
+    ): String? {
+        if (archivePackageName != installedPackageName) {
+            return "APK berasal dari paket lain ($archivePackageName)."
+        }
+        if (archiveVersionCode <= installedVersionCode) {
+            return "Versi APK ($archiveVersionCode) tidak lebih baru dari versi terpasang " +
+                "($installedVersionCode)."
+        }
+        if (archiveSigners.isEmpty()) return "APK tidak memiliki tanda tangan."
+        if (installedSigners.isEmpty()) return "Tanda tangan aplikasi terpasang tidak dapat dibaca."
+        if (installedSigners.any { signer -> signer !in archiveSigners }) {
+            return "Tanda tangan APK tidak cocok dengan aplikasi terpasang. Update dibatalkan."
+        }
+
+        return null
     }
 
     private fun signerDigests(info: android.content.pm.PackageInfo): Set<String> {

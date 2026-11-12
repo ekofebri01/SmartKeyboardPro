@@ -273,29 +273,10 @@ class SmartKeyboardIME : InputMethodService(), LifecycleOwner, ViewModelStoreOwn
     }
 
     /**
-     * A field is sensitive when it is a password/PIN input, when the editor asks for no
-     * personalized learning, or when no input type is declared at all.
+     * Delegates to [InputFieldClassifier] so the sensitive-field rules stay unit-testable.
      */
-    private fun isSensitiveField(info: android.view.inputmethod.EditorInfo?): Boolean {
-        if (info == null) return true
-
-        val inputClass = info.inputType and InputType.TYPE_MASK_CLASS
-        val variation = info.inputType and InputType.TYPE_MASK_VARIATION
-        val noPersonalizedLearning =
-            info.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0
-
-        if (noPersonalizedLearning) return true
-
-        return when (inputClass) {
-            InputType.TYPE_CLASS_TEXT -> variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
-                variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
-                variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
-
-            InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
-            InputType.TYPE_NULL -> true
-            else -> false
-        }
-    }
+    private fun isSensitiveField(info: android.view.inputmethod.EditorInfo?): Boolean =
+        InputFieldClassifier.isSensitiveField(info)
 
     override fun onUpdateSelection(
         oldSelStart: Int,

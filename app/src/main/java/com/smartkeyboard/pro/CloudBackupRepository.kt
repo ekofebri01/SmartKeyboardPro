@@ -65,7 +65,11 @@ class CloudBackupRepository(
     }
 
     /**
-     * Synchronizes current local settings, dictionary, and clipboard directly to live Firestore document collections.
+     * Pushes local settings, dictionary, clipboard snippets and auto-text shortcuts to Firestore.
+     *
+     * This is an upsert-only sync: documents are written by key but never deleted, so syncing
+     * from one device can never wipe data created on another device. Removing cloud data is
+     * only possible through the explicit per-item delete actions.
      */
     suspend fun syncAllToCloud(
         config: ThemeConfig,
@@ -108,8 +112,6 @@ class CloudBackupRepository(
 
             // 2. Personal dictionary -> /users/{uid}/learned_words/{word}
             val learnedWordsCollection = userDocRef.collection("learned_words")
-            val existingWordIds = learnedWordsCollection.get().await().documents.map { it.id }.toSet()
-            val currentWordIds = learnedWords.map { it.word }.toSet()
             learnedWords.forEach { entry ->
                 operations.add { batch ->
                     batch.set(
@@ -122,14 +124,8 @@ class CloudBackupRepository(
                     )
                 }
             }
-            (existingWordIds - currentWordIds).forEach { staleWord ->
-                operations.add { batch -> batch.delete(learnedWordsCollection.document(staleWord)) }
-            }
-
             // 3. Clipboard snippets -> /users/{uid}/snippets/{snippetId}
             val snippetsCollection = userDocRef.collection("snippets")
-            val existingSnippetIds = snippetsCollection.get().await().documents.map { it.id }.toSet()
-            val currentSnippetIds = snippets.indices.map { "snippet_$it" }.toSet()
             snippets.forEachIndexed { idx, snippet ->
                 operations.add { batch ->
                     batch.set(
@@ -141,14 +137,8 @@ class CloudBackupRepository(
                     )
                 }
             }
-            (existingSnippetIds - currentSnippetIds).forEach { staleSnippet ->
-                operations.add { batch -> batch.delete(snippetsCollection.document(staleSnippet)) }
-            }
-
             // 4. Auto-text shortcuts -> /users/{uid}/auto_text_shortcuts/{shortcutId}
             val autoTextCollection = userDocRef.collection("auto_text_shortcuts")
-            val existingAutoTextIds = autoTextCollection.get().await().documents.map { it.id }.toSet()
-            val currentAutoTextIds = autoTexts.map { it.id }.toSet()
             autoTexts.forEach { entry ->
                 operations.add { batch ->
                     batch.set(
@@ -163,10 +153,6 @@ class CloudBackupRepository(
                     )
                 }
             }
-            (existingAutoTextIds - currentAutoTextIds).forEach { staleAutoText ->
-                operations.add { batch -> batch.delete(autoTextCollection.document(staleAutoText)) }
-            }
-
             commitBatched(operations)
 
             true

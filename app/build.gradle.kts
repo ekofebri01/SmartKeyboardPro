@@ -14,8 +14,10 @@ android {
         applicationId = "com.smartkeyboard.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = 146
-        versionName = "1.4.6"
+        // versionCode must keep increasing so the APK installs over the previous
+        // release (and so the in-app updater accepts it). 1.4.9 shipped as 149.
+        versionCode = 150
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
