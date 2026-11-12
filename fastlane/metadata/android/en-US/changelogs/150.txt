@@ -1,0 +1,6 @@
+🔐 Update lebih aman & privasi terjaga
+- Update in-app memverifikasi paket, versi & tanda tangan APK sebelum dipasang (HTTPS only).
+- Kolom password/PIN tidak pernah dipelajari, disarankan, atau disinkronkan ke cloud.
+- Sinkron cloud hanya menambah/memperbarui data, tidak menghapus data perangkat lain.
+- Perbaikan login Google, kamus cloud, dan backup lokal (tidak lagi nge-freeze).
+- APK rilis ~3 MB, ditandatangani key yang sama, jadi update tanpa uninstall.

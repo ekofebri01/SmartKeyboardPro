@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-11-12
+
+### 🔐 Keamanan Update & Privasi Ketikan
+- **In-App Updater Diperketat**: APK update hanya diambil dari URL HTTPS, menolak respons HTML/berkas tidak wajar, dan wajib lolos verifikasi nama paket (`com.smartkeyboard.pro`), `versionCode` lebih tinggi, serta sertifikat penanda tangan yang identik dengan aplikasi terpasang sebelum diserahkan ke installer.
+- **Field Password Dikecualikan**: input password/PIN (termasuk `VISIBLE_PASSWORD` dan `WEB_PASSWORD`), field `TYPE_NULL`, dan editor dengan `IME_FLAG_NO_PERSONALIZED_LEARNING` tidak pernah masuk kamus pribadi, suggestion bar, ekspansi Auto-Text, maupun sinkronisasi cloud.
+- **Tombol Enter Sesuai Editor**: kini mengikuti `imeOptions` (`Search`, `Send`, `Next`, `Done`, `Go`) dan hanya jatuh ke `KEYCODE_ENTER` bila field tidak punya aksi.
+
+### ☁️ Sinkronisasi & Backup
+- **Sync Cloud Upsert-Only**: `syncAllToCloud` hanya menambah/memperbarui dokumen dan tidak lagi menghapus dokumen yang tidak ada di perangkat, sehingga sinkron dari satu HP tidak bisa menghapus data perangkat lain.
+- **Penulisan Firestore Di-batch**: pengiriman kamus, snippet, dan Auto-Text memakai `WriteBatch` ber-chunk, bukan satu request per dokumen.
+- **Kamus Cloud Kembali Berfungsi**: pembacaan kamus tidak lagi memakai `toObjects` yang selalu gagal, dan hasil cloud di-*merge* ke kamus lokal saat aplikasi dibuka.
+- **Login Google Diperbaiki**: `rawNonce` kini diteruskan ke Firebase Auth sehingga verifikasi token tidak lagi ditolak.
+- **I/O Keluar dari Main Thread**: decode foto tema, backup folder, scan berkas backup, dan pembersihan APK update berjalan di `Dispatchers.IO`.
+- **Restore Lebih Andal**: parsing backup JSON dipusatkan di satu tempat dan hasil restore diterapkan di main thread.
+
+### 🛠️ Build & Rilis
+- **Signing Aman**: kredensial rilis tidak lagi hardcoded (env atau `keystore.properties`), build `debug` tidak memakai upload key, dan Auto Backup dimatikan agar data ketikan tidak ikut ke Google Drive.
+- **R8/ProGuard Aktif**: ukuran APK rilis turun dari ~10,8 MB ke ~3,1 MB.
+- **Gradle Wrapper** ditambahkan agar build reproducible.
+- **Pembersihan Repo**: upload keystore, salinan base64-nya, 5 APK rilis, serta data pribadi hardcoded (email, alamat, fingerprint keystore) dihapus dari source, CHANGELOG, dan catatan fastlane.
+- **versi 1.5.0** (`versionCode 150`) — ditandatangani dengan key rilis yang sama seperti versi sebelumnya, sehingga update bisa dipasang langsung tanpa uninstall.
+
+---
+
 ## [1.4.5] - 2026-10-25
 
 ### ⌨️ UI/UX Keyboard Layout & Feature Improvements
